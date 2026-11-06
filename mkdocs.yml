@@ -50,6 +50,7 @@ plugins:
       scripts:
         - docs/gen_cli_reference.py
         - docs/gen_report.py
+        - docs/gen_example_report.py
   - mkdocstrings:
       handlers:
         python:
@@ -74,6 +75,7 @@ nav:
   - Guides:
       - Assessing a reconstruction, end to end: guides/end-to-end.md
       - Many samples: guides/many-samples.md
+      - The HTML report: guides/report.md
   - Behaviour report:
       - behaviour/index.md
       - Circular references: behaviour/origin.md
@@ -94,3 +96,4 @@ nav:
           - plasmid_surgery.features: reference/api/features.md
           - plasmid_surgery.parsers: reference/api/parsers.md
           - plasmid_surgery.refs: reference/api/refs.md
+          - plasmid_surgery.report: reference/api/report.md

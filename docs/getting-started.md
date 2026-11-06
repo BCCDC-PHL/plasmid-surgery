@@ -57,6 +57,9 @@ concatenated into one table. The most useful at first:
 
 [Outputs](reference/outputs.md) describes every file and field.
 
+Add `--report` for `report.html`: every reference's results on linear maps, in one page (see
+[The HTML report](guides/report.md)).
+
 ## Several references, or a plasmid database
 
 `--ref-plasmid` takes any number of FASTA files, and every sequence in them is a separate reference.

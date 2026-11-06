@@ -105,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--min-unaligned-length', type=int, default=100, help="Minimum length of an unaligned contig region to report (default: 100)")
     parser.add_argument('--sample-id', help="Sample ID, used as the scaffold fasta header and the sample_id in assessment output. If not supplied, uses --prefix if given, otherwise the plasmid reconstruction filename (minus file extension)")
     parser.add_argument('--output-bases-per-line', type=int, default=70, help="Number of bases per line in output fasta files (default: 70)")
+    parser.add_argument('--report', action='store_true', help="Also write report.html (all references on linear maps) and a map.svg per reference; the same as running plasmid-surgery-plot on the output directory")
     parser.add_argument('--log-level', default='info', help="Log level (default: 'info')")
     parser.add_argument('--version', action='version', version=f"%(prog)s {__version__}")
     return parser
@@ -348,6 +349,9 @@ def run(args, tmpdir) -> int:
     if len(results) > 1:
         best = min(results, key=lambda m: m['rank'])
         logger.info(f"Best reference: {best['ref_id']} (score {best['score']})")
+    if args.report:
+        from plasmid_surgery.report import write_report
+        logger.info(f"Wrote {write_report(outdir)}")
     return 0
 
 

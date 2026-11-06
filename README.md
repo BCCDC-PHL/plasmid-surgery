@@ -44,7 +44,8 @@ plasmid-surgery \
 ```
 
 Each reference's outputs go to `<outdir>/<ref_id>/`, and `<outdir>/assessment.tsv` has one row per
-reference, ranked.
+reference, ranked. Add `--report` for a self-contained `report.html` with every reference's results on
+linear maps (or run `plasmid-surgery-plot <outdir>` afterwards).
 
 Optionally, with the full assembly and the reconstruction tool's other bins (`--assembly`,
 `--bins`), and with gene annotations of the reference and the sample (`--ref-features`,
@@ -88,6 +89,7 @@ plasmid-surgery-refs \
 | `scaffold.fa` | The reconstruction in reference order, with inferred repeat copies in lowercase |
 | `contig_sources.tsv`, `missed_contigs.fa` | With `--assembly`: every assembly contig aligning to the reference, classified, with its bin |
 | `ref_features.tsv`, `features.tsv` | With annotations: reference genes' completeness; sample genes' locations |
+| `report.html`, `<ref_id>/map.svg` | With `--report`: the HTML report, and each reference's map for slides |
 
 See [Outputs](https://bccdc-phl.github.io/plasmid-surgery/reference/outputs/) for every field.
 

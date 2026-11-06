@@ -9,8 +9,10 @@ Outputs are written to `--outdir` (default: the current directory), named `<pref
 <outdir>/
 ├── assessment.tsv     one row per reference, ranked (rank, score)
 ├── candidates.tsv     with --db-sketch: every candidate reference considered (as from plasmid-surgery-refs)
+├── report.html        with --report: see The HTML report
 └── <ref_id>/          one per reference, even if there's only one
     ├── reference.fa
+    ├── map.svg        with --report
     ├── assessment.tsv
     └── ...
 ```
