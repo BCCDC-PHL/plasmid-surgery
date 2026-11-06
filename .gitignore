@@ -175,5 +175,3 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# plasmid-surgery default tmpdir
-plasmid-surgery_tmp/
