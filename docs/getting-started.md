@@ -3,7 +3,8 @@
 ## Install
 
 In a dedicated environment (not conda's `base`). plasmid-surgery needs
-[minimap2](https://github.com/lh3/minimap2) on `PATH`, and pysam:
+[minimap2](https://github.com/lh3/minimap2) on `PATH`, and pysam; `plasmid-surgery-refs` also needs
+[mash](https://github.com/marbl/Mash):
 
 ```bash
 conda env create -f environment.yml   # creates the 'plasmid-surgery' environment
@@ -15,7 +16,8 @@ plasmid-surgery --version
 ## A first run
 
 You need a plasmid reconstruction (a FASTA of its contigs) and a reference plasmid (a FASTA; only the
-first sequence is used):
+first sequence is used). If you don't have a reference, [`plasmid-surgery-refs`](concepts/finding-references.md)
+can find candidates in a plasmid database:
 
 ```bash
 plasmid-surgery \

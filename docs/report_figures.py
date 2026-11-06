@@ -301,7 +301,48 @@ def reference_choice(outcome):
     return [("The same two contigs against the two references, drawn to the same scale.", svg(fig))]
 
 
+def find_refs(outcome):
+    import numpy as np
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4.2), sharey=True)
+    panels = (("Reconstruction A (complete)", outcome.data["a"], None),
+              ("Reconstruction B (a fragment)", outcome.data["b"], outcome.data["b_asm"]))
+    x = np.linspace(0.05, 1, 200)
+    for ax, (title, rows, with_assembly) in zip(axes, panels):
+        for level in (0.25, 0.5, 0.75, 0.9):
+            ax.plot(x, level / x, color=FAINT, lw=0.8, zorder=0)
+            ax.text(level / 1.06, 1.06, f"{level:g}", fontsize=6.5, color=MUTED, ha="right", va="bottom")
+        ax.text(0.02, 1.06, "score", fontsize=6.5, color=MUTED, ha="left", va="bottom")
+        colour = colours(rows)
+        # Points something else will be drawn just above get their label below
+        arrived = [(a["aligned"], a["covered"]) for a in (with_assembly or {}).values()]
+        for name, r in rows.items():
+            crowded = any(abs(ax_ - r["aligned"]) < 0.05 and 0 < ay - r["covered"] < 0.12 for ax_, ay in arrived)
+            ax.plot(r["aligned"], r["covered"], "o", color=colour[name], ms=8, zorder=3)
+            ax.annotate(f"{name} (#{r['rank']})", (r["aligned"], r["covered"]), xytext=(-8, -14 if crowded else 6),
+                        textcoords="offset points", ha="right", fontsize=7.5, color=INK)
+            if with_assembly and name in with_assembly:
+                after = with_assembly[name]
+                if abs(after["covered"] - r["covered"]) > 0.01:
+                    ax.annotate("", xy=(after["aligned"], after["covered"]), xytext=(r["aligned"], r["covered"]),
+                                arrowprops=dict(arrowstyle="->", color=colour[name], lw=1.3, ls="--"))
+                    ax.annotate(f"{name} with --assembly (#{after['rank']})", (after["aligned"], after["covered"]),
+                                xytext=(-8, 4), textcoords="offset points", ha="right", fontsize=7.5,
+                                color=colour[name])
+        ax.set_xlim(0, 1.05)
+        ax.set_ylim(0, 1.08)
+        ax.set_xlabel("fraction of the reconstruction aligned")
+        ax.set_title(title, loc="left", fontsize=10, color=INK)
+        for side in ("right", "top"):
+            ax.spines[side].set_visible(False)
+    axes[0].set_ylabel("fraction of the reference covered")
+    fig.tight_layout()
+    return [("Each candidate's two fractions, with curves of equal score (their product). For the fragment, "
+             "--assembly replaces the reconstruction's coverage of each candidate with the whole assembly's, "
+             "and the large plasmid moves to the top.", svg(fig))]
+
+
 FIGURES = {
+    "find-refs": find_refs,
     "origin": origin,
     "repeats": repeats,
     "overlaps": overlaps,

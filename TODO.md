@@ -159,6 +159,19 @@ mob_recon binning (sequence assembled, but put in another bin or the chromosome)
   gaps and MAPQ 0 placements highlighted (self-contained HTML report, or
   pyCirclize).
 
+## Reference search
+
+- [x] `plasmid-surgery-refs`: screen a plasmid database (mash sketch + FASTA, optional .fai) with mash
+  distance and estimated containment (both directions, from Jaccard + lengths), confirm candidates
+  with minimap2, rank by (reconstruction aligned) x (reference covered, by the assembly with
+  `--assembly`); write the best as FASTAs for `--ref-plasmid`.
+- [ ] Run `plasmid-surgery` against each selected reference automatically (one command, end to end).
+- [ ] Use `mash screen` (containment of each reference in the reconstruction, from all its k-mers) as
+  an alternative screen, if Jaccard-derived estimates prove too noisy for small reconstructions.
+- [ ] Batch minimap2 per candidate (all contigs in one call is already the case; rotation for the
+  origin isn't done here).
+- [ ] Validate on the cluster against a full PLSDB/RefSeq sketch.
+
 ## Documentation
 
 - [x] mkdocs site (Material): getting started, concepts, guides, outputs/CLI/API reference

@@ -18,7 +18,7 @@ design decision on a small simulated plasmid.
 
 ## Install
 
-In a dedicated conda environment (needs minimap2 and pysam):
+In a dedicated conda environment (needs minimap2 and pysam; `plasmid-surgery-refs` also needs mash):
 
 ```bash
 conda env create -f environment.yml
@@ -46,6 +46,21 @@ plasmid-surgery \
   --assembly sample1.fasta --bins bins/*.fasta \
   --ref-features CP012345.hamronized.tsv --features sample1.hamronized.tsv \
   -o results/sample1 -p sample1
+```
+
+### Finding references
+
+`plasmid-surgery-refs` finds candidate references in a plasmid database (a mash sketch and the FASTA
+it was made from): it screens every database plasmid with mash (distance, and estimated containment
+in both directions), confirms the best candidates with minimap2, and ranks them. The best are written
+out as FASTAs, ready for `--ref-plasmid`:
+
+```bash
+plasmid-surgery-refs \
+  --plasmid-reconstruction bins/plasmid_1.fasta \
+  --db-sketch plasmids.msh --db-fasta plasmids.fasta \
+  --assembly sample1.fasta \
+  -o refs/sample1 -t 8
 ```
 
 ## Outputs
