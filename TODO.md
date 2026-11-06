@@ -159,6 +159,18 @@ mob_recon binning (sequence assembled, but put in another bin or the chromosome)
   gaps and MAPQ 0 placements highlighted (self-contained HTML report, or
   pyCirclize).
 
+## Documentation
+
+- [x] mkdocs site (Material): getting started, concepts, guides, outputs/CLI/API reference
+  (CLI and API generated from the code).
+- [x] Behaviour report: one page per design decision, generated at build time from
+  `tests/scenarios/` (simulated plasmids, real CLI runs, figures drawn from the outputs), with every
+  claim checked by `tests/test_scenarios.py`.
+- [x] Docs CI: strict build on every PR; publish to GitHub Pages from main.
+- [ ] Enable GitHub Pages (Settings -> Pages -> Source: GitHub Actions).
+- [ ] More scenarios as behaviour is added (e.g. supplementary alignments from rearrangements,
+  QC filter edge cases, unaligned contig ends).
+
 ## Prior art to compare against / borrow from
 
 - QUAST with `-r` (genome fraction, misassemblies, unaligned contigs, Icarus viewer)

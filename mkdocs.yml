@@ -1,0 +1,93 @@
+site_name: plasmid-surgery
+site_description: Assess plasmid reconstructions against reference plasmids
+site_url: https://bccdc-phl.github.io/plasmid-surgery/
+repo_url: https://github.com/BCCDC-PHL/plasmid-surgery
+repo_name: BCCDC-PHL/plasmid-surgery
+
+# Build helpers that live in docs/ but aren't pages.
+exclude_docs: |
+  *.py
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - docs/gen_cli_reference.py
+        - docs/gen_report.py
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: sphinx
+            show_source: false
+            show_root_heading: true
+            members_order: source
+            separate_signature: true
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Concepts:
+      - Alignment and placement: concepts/alignment.md
+      - Coverage, gaps and events: concepts/coverage.md
+      - The scaffold: concepts/scaffold.md
+      - Whole-assembly mode: concepts/whole-assembly.md
+      - Feature annotations: concepts/features.md
+  - Guides:
+      - Assessing a reconstruction, end to end: guides/end-to-end.md
+      - Many samples: guides/many-samples.md
+  - Behaviour report:
+      - behaviour/index.md
+      - Circular references: behaviour/origin.md
+      - Repeats: behaviour/repeats.md
+      - Overlapping and contained contigs: behaviour/overlaps.md
+      - Insertions, deletions and identity: behaviour/indels.md
+      - Whole-assembly mode: behaviour/assembly.md
+      - Feature annotations: behaviour/features.md
+      - The choice of reference: behaviour/reference-choice.md
+  - Reference:
+      - Outputs: reference/outputs.md
+      - Command line: reference/cli.md
+      - Python API:
+          - plasmid_surgery.alignment: reference/api/alignment.md
+          - plasmid_surgery.assessment: reference/api/assessment.md
+          - plasmid_surgery.context: reference/api/context.md
+          - plasmid_surgery.features: reference/api/features.md
+          - plasmid_surgery.parsers: reference/api/parsers.md

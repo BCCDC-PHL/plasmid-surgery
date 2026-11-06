@@ -14,9 +14,7 @@ def parse_fasta(fasta_path: Path):
     Parse a fasta file into a list of dicts.
 
     :param fasta_path: Path to the fasta file
-    :type fasta_path: Path
     :return: The parsed fasta file. List of dicts with keys: 'seq_id', 'description', 'seq', 'length'
-    :rtype: list[dict]
     """
     seqs = []
     seq = {'seq': ""}
@@ -48,10 +46,8 @@ def parse_cigar(cigar_str: str) -> list[tuple]:
     Parse a CIGAR string into a list of (operation, length) tuples.
     Raises ValueError if the string is malformed.
 
-    :param cigar_str:
-    :type cigar_str:
-    :return:
-    :rtype:
+    :param cigar_str: CIGAR string, e.g. "10S50=1X39="
+    :return: (operation name, length) tuples, e.g. ("sequence_match", 50)
     """
     cigar_regex = re.compile(r'(\d+)([MIDNSHP=X])')
     matches = cigar_regex.findall(cigar_str)
@@ -98,7 +94,6 @@ def calculate_percent_identity(cigartuples) -> float:
 
     :param cigartuples: pysam-style list of (op_code, length) tuples
     :return: Percent identity, rounded to 3 decimal places (0.0 if no alignment)
-    :rtype: float
     """
     if not cigartuples:
         return 0.0

@@ -185,7 +185,8 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
     :return: dict with 'metrics' (CONTEXT_METRICS_FIELDNAMES), 'contigs' (rows
              for CONTIG_SOURCES_FIELDNAMES), 'missed_contigs' (contig dicts),
              'placements' (placement alignments of all assembly contigs aligning
-             to the ref, reconstruction included), 'contigs_by_id' (those
+             to the ref, reconstruction included), 'alternatives' (their
+             alternative placements), 'contigs_by_id' (those
              contigs), 'classifications' and 'locations' (contig ID ->
              classification, and -> bin label or 'reconstruction')
     """
@@ -286,6 +287,7 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
         'contigs': rows,
         'missed_contigs': missed_contigs,
         'placements': all_placements,
+        'alternatives': all_alternatives,
         'contigs_by_id': aligned_contigs,
         'classifications': classifications,
         'locations': locations,
