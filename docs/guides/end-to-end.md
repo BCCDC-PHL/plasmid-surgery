@@ -11,7 +11,17 @@ A typical workflow, from an assembly with a plasmid reconstruction to an interpr
 * **The reconstruction tool's other bins**, if it has them: its other plasmid FASTAs and its
   chromosome FASTA (e.g. MOB-recon's `plasmid_*.fasta` and `chromosome.fasta`).
 * **One or more candidate reference plasmids** (FASTA): complete, closed plasmids believed to be
-  related. Everything is measured against the reference, so see step 4.
+  related. Everything is measured against the reference, so see step 4. To find candidates in a
+  plasmid database (a mash sketch and its FASTA), use `plasmid-surgery-refs`:
+
+    ```bash
+    plasmid-surgery-refs --plasmid-reconstruction bins/plasmid_1.fasta \
+      --db-sketch plasmids.msh --db-fasta plasmids.fasta --assembly sample1.fasta \
+      -o refs/sample1 -t 8
+    ```
+
+    It writes the best candidates to `refs/sample1/references/` (see
+    [Finding references](../concepts/finding-references.md)).
 
 ## 2. Annotate (optional)
 

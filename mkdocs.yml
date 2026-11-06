@@ -70,6 +70,7 @@ nav:
       - The scaffold: concepts/scaffold.md
       - Whole-assembly mode: concepts/whole-assembly.md
       - Feature annotations: concepts/features.md
+      - Finding references: concepts/finding-references.md
   - Guides:
       - Assessing a reconstruction, end to end: guides/end-to-end.md
       - Many samples: guides/many-samples.md
@@ -82,6 +83,7 @@ nav:
       - Whole-assembly mode: behaviour/assembly.md
       - Feature annotations: behaviour/features.md
       - The choice of reference: behaviour/reference-choice.md
+      - Finding references: behaviour/find-refs.md
   - Reference:
       - Outputs: reference/outputs.md
       - Command line: reference/cli.md
@@ -91,3 +93,4 @@ nav:
           - plasmid_surgery.context: reference/api/context.md
           - plasmid_surgery.features: reference/api/features.md
           - plasmid_surgery.parsers: reference/api/parsers.md
+          - plasmid_surgery.refs: reference/api/refs.md

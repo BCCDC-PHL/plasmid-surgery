@@ -9,8 +9,8 @@ from functools import cache
 
 import pytest
 
-from tests.scenarios import MODULES, SCENARIOS, assembly, features, indels, origin, overlaps, reference_choice, repeats
-from tests.scenarios.common import minimap2_available, render
+from tests.scenarios import MODULES, SCENARIOS, assembly, features, find_refs, indels, origin, overlaps, reference_choice, repeats
+from tests.scenarios.common import mash_available, minimap2_available, render
 
 pytestmark = pytest.mark.skipif(not minimap2_available(), reason="minimap2 not on PATH")
 
@@ -22,6 +22,8 @@ def outcome(module):
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda m: m.SCENARIO.slug)
 def test_report_text_renders(module):
+    if module is find_refs and not mash_available():
+        pytest.skip("mash not on PATH")
     text = render(module.SCENARIO, outcome(module))
     assert not re.search(r"\{[a-z_0-9]+(:[^}]*)?\}", text), "unfilled placeholder"
     assert text.count("[[figure]]") <= 1
@@ -95,3 +97,18 @@ def test_reference_choice():
     assert f['small_covered'] > 0.9 and f['small_aligned'] == 1.0 and f['small_missed'] == 0
     assert f['large_covered'] == pytest.approx(f['fragment_length'] / f['large'])
     assert f['large_missed'] == f['large'] - f['fragment_length']
+
+
+@pytest.mark.skipif(not mash_available(), reason="mash not on PATH")
+def test_find_refs():
+    f = outcome(find_refs).facts
+    assert f['a_best'] == f['a_nearest'] == 'pA' and f['a_best_score'] >= 0.99
+    assert f['a_variant_covered'] < 0.9 and f['a_variant_score'] < f['a_best_score']
+    assert f['a_core_aligned'] < 0.7 and f['a_core_score'] < f['a_variant_score']
+    assert f['a_unrelated_candidates'] == 0
+    # Fragment: against the reconstruction alone, the small relative wins...
+    assert f['b_best'] == 'pB_small' and f['b_small_score'] > f['b_large_score']
+    assert f['b_large_aligned'] == 1.0 and f['b_large_covered'] < 0.4
+    # ...and with the assembly, the large plasmid does
+    assert f['b_asm_best'] == 'pB' and f['b_asm_large_covered'] == 1.0
+    assert f['b_asm_large_score'] > f['b_asm_small_score']

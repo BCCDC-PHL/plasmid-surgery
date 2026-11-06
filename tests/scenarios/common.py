@@ -206,3 +206,30 @@ def render(scenario: Scenario, outcome: Outcome) -> str:
     """The scenario's text, with facts and tables filled in."""
     tables = {name: markdown_table(cols, rows) for name, (cols, rows) in outcome.data.get('tables', {}).items()}
     return scenario.text.format(**outcome.facts, **tables)
+
+
+def run_refs(ws: Workspace, *args: str | Path) -> Path:
+    """Run ``plasmid-surgery-refs`` in a workspace; returns the output directory (``-o``)."""
+    from plasmid_surgery.refs import main as plasmid_surgery_refs
+    argv = [str(a) for a in args]
+    ws.commands.append(shlex.join(['plasmid-surgery-refs', *ws._shown(argv)]))
+    logging.disable(logging.WARNING)
+    try:
+        code = plasmid_surgery_refs([*argv, '--log-level', 'error'])
+    finally:
+        logging.disable(logging.NOTSET)
+    if code != 0:
+        raise RuntimeError(f"`{ws.commands[-1]}` failed")
+    return Path(argv[argv.index('-o') + 1])
+
+
+def mash_sketch(ws: Workspace, fasta: Path, out_prefix: str) -> Path:
+    """``mash sketch -i`` (one sketch per sequence) of a FASTA, recorded like the other commands."""
+    argv = ['sketch', '-i', '-k', '21', '-s', '1000', '-o', str(ws.path(out_prefix)), str(fasta)]
+    ws.commands.append(shlex.join(['mash', *ws._shown(argv)]))
+    subprocess.run(['mash', *argv], check=True, capture_output=True)
+    return ws.path(f"{out_prefix}.msh")
+
+
+def mash_available() -> bool:
+    return shutil.which('mash') is not None

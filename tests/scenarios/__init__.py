@@ -6,9 +6,9 @@ Each scenario builds a plasmid and its contigs from random sequence (seeded), ru
 the report can't drift from what the code does: if a behaviour changes, a test fails.
 """
 
-from tests.scenarios import assembly, features, indels, origin, overlaps, reference_choice, repeats
+from tests.scenarios import assembly, features, find_refs, indels, origin, overlaps, reference_choice, repeats
 
-MODULES = (origin, repeats, overlaps, indels, assembly, features, reference_choice)
+MODULES = (origin, repeats, overlaps, indels, assembly, features, reference_choice, find_refs)
 
 # In report order.
 SCENARIOS = [m.SCENARIO for m in MODULES]

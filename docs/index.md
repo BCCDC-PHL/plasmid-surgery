@@ -36,6 +36,8 @@ flowchart LR
 ## Where to start
 
 * [Getting started](getting-started.md): install, and a first run.
+* [Finding references](concepts/finding-references.md): `plasmid-surgery-refs` finds candidate
+  references in a plasmid database (a mash sketch and its FASTA).
 * [Concepts](concepts/alignment.md): how contigs are placed, and how coverage, gaps and the
   scaffold are worked out.
 * [Behaviour report](behaviour/index.md): each of the main design decisions, and its trade-offs,

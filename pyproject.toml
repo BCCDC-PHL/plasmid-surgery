@@ -28,6 +28,7 @@ Homepage = "https://github.com/BCCDC-PHL/plasmid-surgery"
 
 [project.scripts]
 plasmid-surgery = "plasmid_surgery.__main__:main"
+plasmid-surgery-refs = "plasmid_surgery.refs:main"
 
 [tool.setuptools.packages.find]
 include = ["plasmid_surgery*"]
