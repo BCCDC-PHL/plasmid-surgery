@@ -1,0 +1,67 @@
+name: Docs
+
+# Builds the docs on every pull request (so a broken page, link or behaviour scenario fails the PR),
+# and publishes them to GitHub Pages on pushes to main. Publishing needs
+# Settings -> Pages -> Source: "GitHub Actions"; until then the deploy job fails and the build job
+# still runs.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      DISABLE_MKDOCS_2_WARNING: "true"
+      NO_MKDOCS_2_WARNING: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      # The behaviour report runs plasmid-surgery, so the build needs minimap2
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          environment-file: environment.yml
+          activate-environment: plasmid-surgery
+          conda-remove-defaults: true
+
+      - name: Install
+        run: pip install -e '.[docs]'
+
+      - name: Build
+        run: mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

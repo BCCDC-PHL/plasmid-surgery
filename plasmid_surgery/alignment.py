@@ -52,13 +52,9 @@ def align_contig_vs_ref(contig: dict, ref: dict, tmpdir: Path) -> list[dict]:
     Align contig vs ref using minimap2
 
     :param contig: Contig, as parsed by parsers.parse_fasta
-    :type contig: dict
     :param ref: Reference, as parsed by parsers.parse_fasta
-    :type ref: dict
     :param tmpdir: Directory for intermediate files
-    :type tmpdir: Path
     :return: Aligned segments, as parsed by parsers.parse_sam
-    :rtype: list[dict]
     :raises AlignmentError: if minimap2 is missing or fails
     """
     os.makedirs(tmpdir, exist_ok=True)

@@ -165,6 +165,17 @@ def test_assess_ref_features_statuses():
                        'num_ref_features_absent': 2, 'num_ref_features_inferred': 1, 'num_ref_features_missed': 1}
 
 
+def test_assess_ref_features_assembly_inferred_from_alternatives():
+    # A ref feature covered in the assembly only by an alternative placement is 'inferred' there too
+    reconstruction = {'placements': [placement(0, 100)], 'alternatives': []}
+    assembly = reconstruction['placements'] + [placement(300, 50, contig_id='rep')]
+    alternatives = [placement(200, 50, contig_id='rep')]
+    rows, _ = features.assess_ref_features(
+        [feature('r', 210, 240)], 500, reconstruction, assembly_alignments=assembly,
+        labels={'c': 'reconstruction', 'rep': 'chromosome'}, assembly_alternatives=alternatives)
+    assert (rows[0]['assembly_status'], rows[0]['found_in']) == ('inferred', 'chromosome')
+
+
 def test_assess_ref_features_without_assembly():
     rows, metrics = features.assess_ref_features([feature('r', 10, 50)], 500, {'placements': [], 'alternatives': []})
     assert rows[0]['assembly_status'] == 'NA'

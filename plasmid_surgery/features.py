@@ -317,8 +317,17 @@ def _status(fraction: float, min_coverage: float) -> str:
     return 'absent'
 
 
+def _with_inferred(fraction: float, inferred_fraction: float, min_coverage: float) -> str:
+    """present / partial / absent, or 'inferred' if present only counting alternative placements."""
+    status = _status(fraction, min_coverage)
+    if status != 'present' and _status(fraction + inferred_fraction, min_coverage) == 'present':
+        return 'inferred'
+    return status
+
+
 def assess_ref_features(ref_features: list[dict], ref_length: int, reconstruction: dict,
                         assembly_alignments: list[dict] = None, labels: dict = None,
+                        assembly_alternatives: list[dict] = (),
                         min_coverage: float = DEFAULT_MIN_FEATURE_COVERAGE,
                         min_deletion_length: int = assessment.DEFAULT_MIN_UNCOVERED_DELETION) -> tuple[list[dict], dict]:
     """
@@ -330,6 +339,7 @@ def assess_ref_features(ref_features: list[dict], ref_length: int, reconstructio
     :param ref_features: Features mapped onto the ref (map_features)
     :param reconstruction: alignment.align_contigs result for the reconstruction
     :param assembly_alignments: Placement alignments of all assembly contigs (or None)
+    :param assembly_alternatives: Their alternative placements (repeat copies)
     :param labels: contig ID -> location label for assembly contigs ('reconstruction', bin, ...)
     :return: (rows for REF_FEATURES_FIELDNAMES, metrics)
     """
@@ -337,6 +347,7 @@ def assess_ref_features(ref_features: list[dict], ref_length: int, reconstructio
     inferred_mask = context.ref_mask(reconstruction['alternatives'], ref_length, min_deletion_length)
     assembly_mask = (context.ref_mask(assembly_alignments, ref_length, min_deletion_length)
                      if assembly_alignments is not None else None)
+    assembly_inferred_mask = context.ref_mask(list(assembly_alternatives), ref_length, min_deletion_length)
 
     rows = []
     counts = defaultdict(int)
@@ -345,9 +356,7 @@ def assess_ref_features(ref_features: list[dict], ref_length: int, reconstructio
         reconstruction_fraction = _fraction(reconstruction_mask, start, end)
         either = bytearray(a | b for a, b in zip(reconstruction_mask[start:end], inferred_mask[start:end]))
         inferred_fraction = round(_fraction(either, 0, end - start) - reconstruction_fraction, 4)
-        status = _status(reconstruction_fraction, min_coverage)
-        if status != 'present' and _status(reconstruction_fraction + inferred_fraction, min_coverage) == 'present':
-            status = 'inferred'
+        status = _with_inferred(reconstruction_fraction, inferred_fraction, min_coverage)
         counts[status] += 1
         row = {
             **{k: feature[k] for k in FEATURE_FIELDNAMES},
@@ -364,9 +373,11 @@ def assess_ref_features(ref_features: list[dict], ref_length: int, reconstructio
         }
         if assembly_mask is not None:
             assembly_fraction = _fraction(assembly_mask, start, end)
-            assembly_status = _status(assembly_fraction, min_coverage)
+            assembly_either = bytearray(a | b for a, b in zip(assembly_mask[start:end], assembly_inferred_mask[start:end]))
+            assembly_inferred_fraction = round(_fraction(assembly_either, 0, end - start) - assembly_fraction, 4)
+            assembly_status = _with_inferred(assembly_fraction, assembly_inferred_fraction, min_coverage)
             found_in = sorted({
-                labels.get(a['contig_id'], 'assembly') for a in assembly_alignments
+                labels.get(a['contig_id'], 'assembly') for a in list(assembly_alignments) + list(assembly_alternatives)
                 if any(s < end and e > start for s, e in assessment.covered_ref_intervals(a, ref_length, min_deletion_length))
             })
             row.update({

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from textwrap import wrap
 
+from plasmid_surgery import __version__
 import plasmid_surgery.parsers as parsers
 import plasmid_surgery.alignment as alignment
 import plasmid_surgery.assessment as assessment
@@ -67,13 +68,16 @@ def setup_logging(log_level):
     return None
 
 
-def parse_args(argv=None):
+def build_parser() -> argparse.ArgumentParser:
     """
-    Parse command-line arguments.
+    The command-line parser (also used to generate the documentation's CLI reference).
     """
-    parser = argparse.ArgumentParser(prog='plasmid-surgery')
-    parser.add_argument('--plasmid-reconstruction', required=True, help="Plasmid reconstruction to be repaired.")
-    parser.add_argument('--ref-plasmid', required=True, help="Reference plasmid to be used for plasmid surgery.")
+    parser = argparse.ArgumentParser(
+        prog='plasmid-surgery',
+        description="Assess a plasmid reconstruction (a set of contigs) against a reference plasmid: where each contig "
+                    "belongs, what's missing or extra, and optionally where the rest of the plasmid is in the assembly.")
+    parser.add_argument('--plasmid-reconstruction', required=True, help="Plasmid reconstruction to assess: a FASTA of its contigs")
+    parser.add_argument('--ref-plasmid', required=True, help="Reference plasmid to assess it against: a FASTA (only the first sequence is used)")
     parser.add_argument('--assembly', help="Full assembly the reconstruction was made from. Reports where the rest of the ref plasmid's sequence is in the assembly (contig_sources.tsv, missed_contigs.fa)")
     parser.add_argument('--bins', nargs='+', metavar='FASTA', help="Other bins of the reconstruction tool (e.g. mob_recon's plasmid_*.fasta and chromosome.fasta), used to label assembly contigs by bin. Requires --assembly")
     parser.add_argument('--min-missed-fraction', type=float, default=context.DEFAULT_MIN_MISSED_FRACTION, help=f"With --assembly: minimum fraction of an assembly contig aligned to the ref (at a single location) to call it 'missed' rather than 'shared' (default: {context.DEFAULT_MIN_MISSED_FRACTION})")
@@ -88,6 +92,15 @@ def parse_args(argv=None):
     parser.add_argument('--sample-id', help="Sample ID, used as the scaffold fasta header and the sample_id in assessment output. If not supplied, uses --prefix if given, otherwise the plasmid reconstruction filename (minus file extension)")
     parser.add_argument('--output-bases-per-line', type=int, default=70, help="Number of bases per line in output fasta files (default: 70)")
     parser.add_argument('--log-level', default='info', help="Log level (default: 'info')")
+    parser.add_argument('--version', action='version', version=f"%(prog)s {__version__}")
+    return parser
+
+
+def parse_args(argv=None):
+    """
+    Parse command-line arguments.
+    """
+    parser = build_parser()
     args = parser.parse_args(argv)
     if args.bins and not args.assembly:
         parser.error("--bins requires --assembly")
@@ -265,6 +278,7 @@ def run(args, outputs: dict, tmpdir) -> int:
             mapped, ref_plasmid_length, recon_alignments,
             assembly_alignments=context_result['placements'] if context_result else None,
             labels=context_result['locations'] if context_result else None,
+            assembly_alternatives=context_result['alternatives'] if context_result else (),
             min_coverage=args.min_feature_coverage,
             min_deletion_length=args.min_indel_length,
         )
