@@ -174,6 +174,15 @@ mob_recon binning (sequence assembled, but put in another bin or the chromosome)
   origin isn't done here).
 - [ ] Validate on the cluster against a full PLSDB/RefSeq sketch.
 
+## Visualization
+
+- [x] Per-run HTML report (`--report`, `plasmid-surgery-plot`): all references on linear maps with a
+  shared scale, consistent contig colours, cross-panel highlighting, a contig x reference matrix;
+  map.svg per reference for slides. Self-contained, no dependencies.
+- [ ] Cohort view: many samples against one reference (coverage strips per sample; gene presence
+  matrix from ref_features.tsv).
+- [ ] PNG export of maps (for tools that can't take SVG).
+
 ## Documentation
 
 - [x] mkdocs site (Material): getting started, concepts, guides, outputs/CLI/API reference
