@@ -41,7 +41,7 @@ def run() -> Outcome:
         recon_fa = ws.write_fasta('reconstruction.fa', contigs.items())
         out = outputs(ws.run('--plasmid-reconstruction', recon_fa, '--ref-plasmid', ref_fa,
                              '-o', ws.path('out'), '--tmpdir', ws.path('tmp')))
-        y_sam = [a for a in parsers.parse_sam(ws.path('tmp') / 'y_vs_ref.sam') if a['is_mapped'] and not a['is_supplementary']]
+        y_sam = [a for a in parsers.parse_sam(ws.path('tmp') / 'ref' / 'y_vs_ref.sam') if a['is_mapped'] and not a['is_supplementary']]
 
     rows = {r['contig_id']: r for r in out['summary']}
     events = {e['event_type']: e for e in out['events']}

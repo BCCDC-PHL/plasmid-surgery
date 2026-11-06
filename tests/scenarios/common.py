@@ -123,8 +123,13 @@ def workspace() -> tuple[Workspace, tempfile.TemporaryDirectory]:
     return Workspace(Path(tmp.name)), tmp
 
 
-def outputs(outdir: Path) -> dict:
-    """Everything a run wrote, parsed (missing optional outputs are absent)."""
+def outputs(outdir: Path, ref_id: str = None) -> dict:
+    """Everything a run wrote for one reference (``<outdir>/<ref_id>/``; the only one if not given),
+    parsed (missing optional outputs are absent)."""
+    if ref_id is None:
+        [outdir] = [d for d in Path(outdir).iterdir() if d.is_dir()]
+    else:
+        outdir = Path(outdir) / ref_id
     out = {
         'assessment': read_tsv(outdir / 'assessment.tsv')[0],
         'summary': read_tsv(outdir / 'summary.tsv'),

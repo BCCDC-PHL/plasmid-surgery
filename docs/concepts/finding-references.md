@@ -15,6 +15,18 @@ plasmid-surgery-refs \
 It writes `candidates.tsv` (every candidate, ranked) and `references/`, one FASTA per selected
 reference (`--top`, default 3), named `<rank>_<id>.fa`, ready to use as `--ref-plasmid`.
 
+## End to end
+
+`plasmid-surgery` takes the same database options in place of `--ref-plasmid`: it finds references
+the same way, then assesses the reconstruction against each of the best `--top`, and ranks them
+(see [Outputs](../reference/outputs.md#layout)). So there are three ways to work:
+
+| To | Run |
+|---|---|
+| find references only | `plasmid-surgery-refs --db-sketch … --db-fasta …` |
+| assess against references you have | `plasmid-surgery --ref-plasmid a.fa [b.fa …]` |
+| find references, then assess against them | `plasmid-surgery --db-sketch … --db-fasta …` |
+
 ## How it works
 
 1. **Screen** with mash. The reconstruction is sketched as a whole, with the database's k-mer and

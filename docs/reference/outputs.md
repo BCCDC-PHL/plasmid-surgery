@@ -1,11 +1,36 @@
 # Outputs
 
-All outputs are written to `--outdir` (default: the current directory), named `<prefix>_<file>` if
+Outputs are written to `--outdir` (default: the current directory), named `<prefix>_<file>` if
 `--prefix` is given. Positions are 0-based, half-open (BED-style) unless stated otherwise.
+
+## Layout
+
+```text
+<outdir>/
+├── assessment.tsv     one row per reference, ranked (rank, score)
+├── candidates.tsv     with --db-sketch: every candidate reference considered (as from plasmid-surgery-refs)
+└── <ref_id>/          one per reference, even if there's only one
+    ├── reference.fa
+    ├── assessment.tsv
+    └── ...
+```
+
+Each reference's directory is named after its ID (with characters other than letters, digits, `.`,
+`_` and `-` replaced by `_`; a repeated ID gets `_2`, `_3`, ...).
+
+The top-level `assessment.tsv` has the same columns as each reference's, and is sorted by `rank`:
+
+| field   | description |
+|---------|-------------|
+| `rank`  | 1 for the best reference |
+| `score` | `contig_fraction_aligned` × the reference's coverage: `assembly_ref_fraction_covered` with `--assembly`, otherwise `ref_fraction_covered`. Ties are broken by `ref_fraction_covered_including_repeats`, then input order |
+
+## Each reference's files
 
 | file             | description |
 |------------------|-------------|
-| `assessment.tsv` | One-row summary of how well the reconstruction matches the ref (see below). Rows from many samples can be concatenated. |
+| `reference.fa`   | The reference assessed against |
+| `assessment.tsv` | One-row summary of how well the reconstruction matches the ref (see below), the same as its row in the top-level `assessment.tsv`. |
 | `gaps.bed`       | BED4 of ref regions not covered by any contig, named `gap_<n>_<type>` where type is `repeat` or `unique` (see [Coverage, gaps and events](../concepts/coverage.md)). A gap spanning the origin is written as two records with the same name. |
 | `events.tsv`     | Insertions and deletions of at least `--min-indel-length` bp within contig alignments. |
 | `unaligned.fa`   | Contig regions of at least `--min-unaligned-length` bp that don't align to the ref (whole unaligned contigs, or unaligned contig ends). Headers are `<contig_id>:<start>-<end>`, 1-based inclusive. |
@@ -21,7 +46,7 @@ Intermediate alignment files go to a temporary directory that's removed after th
 
 ## `assessment.tsv`
 
-One row of metrics. Only alignments that passed the [quality filters](../concepts/alignment.md#quality-filters)
+One row of metrics per reference (`rank` and `score` are described [above](#layout)). Only alignments that passed the [quality filters](../concepts/alignment.md#quality-filters)
 count. Columns for options not used are `NA`, so files from different runs can be concatenated.
 
 | field                        | description |

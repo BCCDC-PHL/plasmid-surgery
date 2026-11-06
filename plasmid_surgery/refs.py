@@ -342,6 +342,35 @@ def find_refs(reconstruction_fasta, db_sketch, db_fasta, tmpdir, db_fasta_index=
 
 # --- command line ---
 
+def safe_name(seq_id: str) -> str:
+    """A sequence ID made safe for use as a file or directory name."""
+    return ''.join(c if c.isalnum() or c in '._-' else '_' for c in seq_id) or 'ref'
+
+
+def add_database_arguments(parser) -> None:
+    """
+    The plasmid database options other than --db-sketch, shared by plasmid-surgery-refs and
+    plasmid-surgery (which adds --db-sketch as an alternative to --ref-plasmid).
+    """
+    parser.add_argument('--db-fasta', help="The plasmid database's FASTA (IDs matching the sketch's)")
+    parser.add_argument('--db-fasta-index', help="samtools faidx index for --db-fasta (default: <db-fasta>.fai, if it exists; "
+                                                 "without an index the FASTA is read through once)")
+    parser.add_argument('-n', '--num-candidates', type=int, default=DEFAULT_NUM_CANDIDATES,
+                        help=f"Candidates to confirm with minimap2: the top N by estimated containment, and the top N by "
+                             f"mash distance (default: {DEFAULT_NUM_CANDIDATES})")
+    parser.add_argument('--top', type=int, default=DEFAULT_TOP, help=f"Number of best references to keep (default: {DEFAULT_TOP})")
+    parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for mash and minimap2 (default: 1)")
+
+
+def write_candidates(path, ranked: list[dict], top: int) -> None:
+    for row in ranked:
+        row['selected'] = row['rank'] <= top
+    with open(path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=CANDIDATE_FIELDNAMES, delimiter='\t', extrasaction='ignore')
+        writer.writeheader()
+        writer.writerows(ranked)
+
+
 def build_parser() -> argparse.ArgumentParser:
     from plasmid_surgery import __version__
     parser = argparse.ArgumentParser(
@@ -350,19 +379,12 @@ def build_parser() -> argparse.ArgumentParser:
                     "(a mash sketch and the FASTA it was made from): screen with mash, confirm with minimap2.")
     parser.add_argument('--plasmid-reconstruction', required=True, help="Plasmid reconstruction: a FASTA of its contigs")
     parser.add_argument('--db-sketch', required=True, help="mash sketch of the plasmid database (.msh)")
-    parser.add_argument('--db-fasta', required=True, help="The plasmid database's FASTA (IDs matching the sketch's)")
-    parser.add_argument('--db-fasta-index', help="samtools faidx index for --db-fasta (default: <db-fasta>.fai, if it exists; "
-                                                 "without an index the FASTA is read through once)")
+    add_database_arguments(parser)
     parser.add_argument('--assembly', help="Full assembly the reconstruction was made from. Ranks by the assembly's coverage "
                                            "of each candidate rather than the reconstruction's, so a reconstruction that's a "
                                            "fragment of a larger plasmid doesn't favour smaller relatives")
-    parser.add_argument('-n', '--num-candidates', type=int, default=DEFAULT_NUM_CANDIDATES,
-                        help=f"Candidates to confirm with minimap2: the top N by estimated containment, and the top N by "
-                             f"mash distance (default: {DEFAULT_NUM_CANDIDATES})")
-    parser.add_argument('--top', type=int, default=DEFAULT_TOP, help=f"Number of best references to write out (default: {DEFAULT_TOP})")
     parser.add_argument('-o', '--outdir', default='.', help="Output directory (default: current directory)")
     parser.add_argument('-p', '--prefix', help="Prefix for output filenames (default: no prefix)")
-    parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for mash and minimap2 (default: 1)")
     parser.add_argument('--tmpdir', help="Directory for intermediate files, kept after the run (default: a temporary "
                                          "directory, removed afterwards)")
     parser.add_argument('--log-level', default='info', help="Log level (default: 'info')")
@@ -373,20 +395,14 @@ def build_parser() -> argparse.ArgumentParser:
 def write_outputs(ranked: list[dict], sequences: dict, outdir: Path, prefix: str, top: int) -> None:
     name = (lambda f: f"{prefix}_{f}") if prefix else (lambda f: f)
     outdir.mkdir(parents=True, exist_ok=True)
-    for row in ranked:
-        row['selected'] = row['rank'] <= top
-    with open(outdir / name('candidates.tsv'), 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=CANDIDATE_FIELDNAMES, delimiter='\t', extrasaction='ignore')
-        writer.writeheader()
-        writer.writerows(ranked)
+    write_candidates(outdir / name('candidates.tsv'), ranked, top)
     ref_dir = outdir / name('references')
     if ref_dir.exists():
         shutil.rmtree(ref_dir)
     ref_dir.mkdir()
     for row in ranked[:top]:
         seq = sequences[row['ref_id']]
-        safe_id = ''.join(c if c.isalnum() or c in '._-' else '_' for c in row['ref_id'])
-        with open(ref_dir / f"{row['rank']}_{safe_id}.fa", 'w') as f:
+        with open(ref_dir / f"{row['rank']}_{safe_name(row['ref_id'])}.fa", 'w') as f:
             header = f">{row['ref_id']} {row['description']}".rstrip()
             f.write(header + '\n')
             for i in range(0, len(seq), 70):
@@ -394,7 +410,10 @@ def write_outputs(ranked: list[dict], sequences: dict, outdir: Path, prefix: str
 
 
 def main(argv=None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not args.db_fasta:
+        parser.error("--db-fasta is required")
     from plasmid_surgery.__main__ import setup_logging
     setup_logging(args.log_level)
     try:

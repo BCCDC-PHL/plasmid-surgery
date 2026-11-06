@@ -21,7 +21,8 @@ A typical workflow, from an assembly with a plasmid reconstruction to an interpr
     ```
 
     It writes the best candidates to `refs/sample1/references/` (see
-    [Finding references](../concepts/finding-references.md)).
+    [Finding references](../concepts/finding-references.md)). Or let `plasmid-surgery` find them
+    itself, in step 3.
 
 ## 2. Annotate (optional)
 
@@ -51,14 +52,19 @@ plasmid-surgery \
   --bins bins/*.fasta \
   --ref-features CP012345.*.hamronized.tsv \
   --features sample1.*.hamronized.tsv \
-  -o results/sample1_vs_CP012345 -p sample1
+  -o results/sample1 -p sample1
 ```
+
+With several candidate references, give them all (`--ref-plasmid a.fa b.fa ...`), or replace
+`--ref-plasmid` with `--db-sketch plasmids.msh --db-fasta plasmids.fasta` to find them in a database.
+Each reference gets its own subdirectory, and `results/sample1/sample1_assessment.tsv` ranks them.
 
 ## 4. Interpret
 
 Work from the summary to the detail:
 
-1. **Is this reference plausible?** `contig_fraction_aligned` near 1 and few `num_unaligned_contigs`
+1. **Is this reference plausible?** With several references, start with the top-level
+   `assessment.tsv`, ranked by `score`, but compare the top few rather than trusting the first blindly. `contig_fraction_aligned` near 1 and few `num_unaligned_contigs`
    mean the reconstruction is accounted for by the reference. A good result means "consistent with
    this reference", not "complete": a fragment of a larger plasmid can look complete against a
    smaller reference that shares it (see [The choice of reference](../behaviour/reference-choice.md)).

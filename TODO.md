@@ -165,7 +165,9 @@ mob_recon binning (sequence assembled, but put in another bin or the chromosome)
   distance and estimated containment (both directions, from Jaccard + lengths), confirm candidates
   with minimap2, rank by (reconstruction aligned) x (reference covered, by the assembly with
   `--assembly`); write the best as FASTAs for `--ref-plasmid`.
-- [ ] Run `plasmid-surgery` against each selected reference automatically (one command, end to end).
+- [x] End to end: `plasmid-surgery --db-sketch/--db-fasta` (in place of `--ref-plasmid`) finds
+  references and assesses against the best `--top`. `--ref-plasmid` takes several references. Each
+  reference's outputs go to `<outdir>/<ref_id>/`; `<outdir>/assessment.tsv` ranks them.
 - [ ] Use `mash screen` (containment of each reference in the reconstruction, from all its k-mers) as
   an alternative screen, if Jaccard-derived estimates prove too noisy for small reconstructions.
 - [ ] Batch minimap2 per candidate (all contigs in one call is already the case; rotation for the

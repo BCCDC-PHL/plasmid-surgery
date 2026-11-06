@@ -15,9 +15,7 @@ plasmid-surgery --version
 
 ## A first run
 
-You need a plasmid reconstruction (a FASTA of its contigs) and a reference plasmid (a FASTA; only the
-first sequence is used). If you don't have a reference, [`plasmid-surgery-refs`](concepts/finding-references.md)
-can find candidates in a plasmid database:
+You need a plasmid reconstruction (a FASTA of its contigs) and a reference plasmid (a FASTA):
 
 ```bash
 plasmid-surgery \
@@ -27,13 +25,26 @@ plasmid-surgery \
   -p sample1
 ```
 
-This writes `results/sample1/sample1_assessment.tsv`, `sample1_summary.tsv`, `sample1_gaps.bed`,
-`sample1_events.tsv`, `sample1_unaligned.fa` and `sample1_scaffold.fa`. Without `-p`, the files are
-just `assessment.tsv`, and so on. Intermediate alignment files go to a temporary directory that's
-removed afterwards, unless you give `--tmpdir`.
+Each reference's outputs go to a subdirectory named after it, and a ranked summary goes at the top:
 
-Start with `assessment.tsv`: one row of metrics, so rows from many samples can be concatenated into
-one table. The most useful at first:
+```text
+results/sample1/
+├── sample1_assessment.tsv        one row per reference, ranked
+└── CP012345.1/                   the reference's ID
+    ├── sample1_assessment.tsv
+    ├── sample1_summary.tsv
+    ├── sample1_gaps.bed
+    ├── sample1_events.tsv
+    ├── sample1_unaligned.fa
+    ├── sample1_scaffold.fa
+    └── sample1_reference.fa      the reference itself
+```
+
+Without `-p`, the files are just `assessment.tsv`, and so on. Intermediate alignment files go to a
+temporary directory that's removed afterwards, unless you give `--tmpdir`.
+
+Start with `assessment.tsv`: one row of metrics per reference, so rows from many samples can be
+concatenated into one table. The most useful at first:
 
 | Field | Meaning |
 |---|---|
@@ -45,6 +56,28 @@ one table. The most useful at first:
 | `num_large_insertions`, `num_large_deletions` | Structural differences within aligned contigs |
 
 [Outputs](reference/outputs.md) describes every file and field.
+
+## Several references, or a plasmid database
+
+`--ref-plasmid` takes any number of FASTA files, and every sequence in them is a separate reference.
+Each is assessed, in its own subdirectory, and the top-level `assessment.tsv` ranks them (by `score`;
+see [Finding references](concepts/finding-references.md)):
+
+```bash
+plasmid-surgery --plasmid-reconstruction sample1_plasmid.fasta \
+  --ref-plasmid candidates.fasta -o results/sample1
+```
+
+Or, instead of `--ref-plasmid`, give a plasmid database (a mash sketch and its FASTA) to find the
+references in, and assess against the best `--top` (default 3). `candidates.tsv` at the top level
+lists every candidate considered:
+
+```bash
+plasmid-surgery --plasmid-reconstruction sample1_plasmid.fasta \
+  --db-sketch plasmids.msh --db-fasta plasmids.fasta -o results/sample1
+```
+
+To only find references, without assessing, use `plasmid-surgery-refs` (same database options).
 
 ## With the full assembly
 

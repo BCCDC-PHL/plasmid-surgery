@@ -131,3 +131,18 @@ def test_missing_mash_is_an_error(monkeypatch, tmp_path):
     monkeypatch.setenv('PATH', str(tmp_path))   # nothing on PATH
     with pytest.raises(refs.RefSearchError):
         refs.sketch_info(tmp_path / 'x.msh')
+
+
+@needs_tools
+def test_plasmid_surgery_with_database(db, tmp_path):
+    # End to end: find references in the database, then assess against the best two
+    from plasmid_surgery.__main__ import main as plasmid_surgery
+    out = tmp_path / 'e2e'
+    code = plasmid_surgery(['--plasmid-reconstruction', str(db['complete']), '--db-sketch', str(db['sketch']),
+                            '--db-fasta', str(db['fasta']), '--top', '2', '-o', str(out), '--log-level', 'error'])
+    assert code == 0
+    assert sorted(p.name for p in out.iterdir()) == ['assessment.tsv', 'candidates.tsv', 'pA', 'pA_variant']
+    rows = read_tsv(out / 'assessment.tsv')
+    assert [(r['ref_id'], r['rank']) for r in rows] == [('pA', '1'), ('pA_variant', '2')]
+    assert [r['ref_id'] for r in read_tsv(out / 'candidates.tsv') if r['selected'] == 'True'] == ['pA', 'pA_variant']
+    assert (out / 'pA' / 'reference.fa').read_text().startswith('>pA')

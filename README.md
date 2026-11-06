@@ -28,12 +28,23 @@ pip install -e .
 
 ## Usage
 
+Three ways to work:
+
+| To | Run |
+|---|---|
+| assess against references you have | `plasmid-surgery --ref-plasmid a.fa [b.fa …]` |
+| find references in a plasmid database, then assess against the best | `plasmid-surgery --db-sketch db.msh --db-fasta db.fa` |
+| only find references | `plasmid-surgery-refs --db-sketch db.msh --db-fasta db.fa` |
+
 ```bash
 plasmid-surgery \
   --plasmid-reconstruction bins/plasmid_1.fasta \
   --ref-plasmid CP012345.fa \
   -o results/sample1 -p sample1
 ```
+
+Each reference's outputs go to `<outdir>/<ref_id>/`, and `<outdir>/assessment.tsv` has one row per
+reference, ranked.
 
 Optionally, with the full assembly and the reconstruction tool's other bins (`--assembly`,
 `--bins`), and with gene annotations of the reference and the sample (`--ref-features`,
@@ -67,7 +78,9 @@ plasmid-surgery-refs \
 
 | File | Contents |
 |---|---|
-| `assessment.tsv` | One row of metrics: coverage, gaps (repeat vs. unique), unaligned sequence, events, and (with the options above) assembly-level and gene-level metrics. Rows from many samples concatenate into one table. |
+| `assessment.tsv` | Top level: one row of metrics per reference, ranked: coverage, gaps (repeat vs. unique), unaligned sequence, events, and (with the options above) assembly-level and gene-level metrics. Rows from many samples concatenate into one table. |
+| `candidates.tsv` | Top level, with `--db-sketch`: every candidate reference considered |
+| *In `<ref_id>/`:* | |
 | `summary.tsv` | One row per contig alignment: position, orientation, identity, placements |
 | `gaps.bed` | Uncovered reference regions, typed `repeat` or `unique` |
 | `events.tsv` | Large insertions and deletions within aligned contigs |
