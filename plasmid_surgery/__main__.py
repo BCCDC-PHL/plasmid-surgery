@@ -12,6 +12,7 @@ from textwrap import wrap
 import plasmid_surgery.parsers as parsers
 import plasmid_surgery.alignment as alignment
 import plasmid_surgery.assessment as assessment
+import plasmid_surgery.context as context
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,9 @@ OUTPUT_FILENAMES = {
     'unaligned': 'unaligned.fa',
     'summary': 'summary.tsv',
     'scaffold': 'scaffold.fa',
+    # Only with --assembly
+    'contig_sources': 'contig_sources.tsv',
+    'missed_contigs': 'missed_contigs.fa',
 }
 
 SUMMARY_OUTPUT_FIELDNAMES = [
@@ -66,6 +70,9 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(prog='plasmid-surgery')
     parser.add_argument('--plasmid-reconstruction', required=True, help="Plasmid reconstruction to be repaired.")
     parser.add_argument('--ref-plasmid', required=True, help="Reference plasmid to be used for plasmid surgery.")
+    parser.add_argument('--assembly', help="Full assembly the reconstruction was made from. Reports where the rest of the ref plasmid's sequence is in the assembly (contig_sources.tsv, missed_contigs.fa)")
+    parser.add_argument('--bins', nargs='+', metavar='FASTA', help="Other bins of the reconstruction tool (e.g. mob_recon's plasmid_*.fasta and chromosome.fasta), used to label assembly contigs by bin. Requires --assembly")
+    parser.add_argument('--min-missed-fraction', type=float, default=context.DEFAULT_MIN_MISSED_FRACTION, help=f"With --assembly: minimum fraction of an assembly contig aligned to the ref (at a single location) to call it 'missed' rather than 'shared' (default: {context.DEFAULT_MIN_MISSED_FRACTION})")
     parser.add_argument('-o', '--outdir', default='.', help="Output directory (default: current directory)")
     parser.add_argument('-p', '--prefix', help="Prefix for output filenames, e.g. '-p sample1' gives 'sample1_assessment.tsv' (default: no prefix)")
     parser.add_argument('--tmpdir', help="Directory for intermediate minimap2 files, kept after the run. If not supplied, a temporary directory is used and removed afterwards.")
@@ -75,6 +82,8 @@ def parse_args(argv=None):
     parser.add_argument('--output-bases-per-line', type=int, default=70, help="Number of bases per line in output fasta files (default: 70)")
     parser.add_argument('--log-level', default='info', help="Log level (default: 'info')")
     args = parser.parse_args(argv)
+    if args.bins and not args.assembly:
+        parser.error("--bins requires --assembly")
 
     return args
 
@@ -179,43 +188,15 @@ def run(args, outputs: dict, tmpdir) -> int:
         plasmid_reconstruction_basename = os.path.basename(args.plasmid_reconstruction)
         sample_id = plasmid_reconstruction_basename.split('.')[0]
 
-    aligned_contigs = []
-    alternative_placements = []
-    failed_alignments = []
-    for contig in plasmid_reconstruction_contigs:
-        contig_id = contig['seq_id']
-        logger.info(f"Aligning contig: {contig_id} vs. ref plasmid: {ref_plasmid_id}")
-        try:
-            aligned_segments = alignment.align_contig_vs_circular_ref(contig, ref_plasmid, tmpdir)
-        except alignment.AlignmentError as e:
-            logger.error(str(e))
-            return 1
-
-        if len(aligned_segments) == 0:
-            logger.info(f"Zero alignments for contig: {contig_id} vs. ref_plasmid: {ref_plasmid_id}")
-            continue
-        if any(s['is_supplementary'] for s in aligned_segments):
-            logger.info(f"Supplementary alignment found for contig: {contig_id}")
-
-        passed = []
-        for aligned_segment in aligned_segments:
-            aligned_segment_qc_stats = alignment.alignment_qc(aligned_segment)
-            if not aligned_segment_qc_stats['overall_qc_pass']:
-                logger.info(f"Alignment failed quality filters: {contig_id}")
-                logger.info("Alignment QC stats: " + json.dumps(aligned_segment_qc_stats['qc_stats']))
-                aligned_segment['included_in_output'] = False
-                failed_alignments.append(aligned_segment)
-                continue
-            passed.append(aligned_segment)
-
-        placement, alternatives, rejected = alignment.select_alternative_placements(passed)
-        if alternatives:
-            logger.info(f"Contig {contig_id} has {len(alternatives)} alternative placement(s) on the ref (e.g. a repeat)")
-        for aln in rejected:
-            aln['included_in_output'] = False
-        aligned_contigs += placement
-        alternative_placements += alternatives
-        failed_alignments += rejected
+    logger.info(f"Aligning {len(plasmid_reconstruction_contigs)} reconstruction contig(s) vs. ref plasmid: {ref_plasmid_id}")
+    try:
+        recon_alignments = alignment.align_contigs(plasmid_reconstruction_contigs, ref_plasmid, tmpdir)
+    except alignment.AlignmentError as e:
+        logger.error(str(e))
+        return 1
+    aligned_contigs = recon_alignments['placements']
+    alternative_placements = recon_alignments['alternatives']
+    failed_alignments = recon_alignments['failed']
 
     output_seq = alignment.build_output_sequence(aligned_contigs, ref_plasmid_length, alternative_placements)
 
@@ -228,8 +209,24 @@ def run(args, outputs: dict, tmpdir) -> int:
         alternative_placements=alternative_placements,
     )
     metrics = {'sample_id': sample_id, 'ref_id': ref_plasmid_id, **assessment_result['metrics']}
+
+    if args.assembly:
+        assembly_contigs = parsers.parse_fasta(args.assembly)
+        bins = context.bin_labels(args.bins) if args.bins else None
+        try:
+            context_result = context.assess_assembly_context(
+                plasmid_reconstruction_contigs, recon_alignments, assembly_contigs, ref_plasmid, tmpdir,
+                bins=bins, min_missed_fraction=args.min_missed_fraction,
+            )
+        except alignment.AlignmentError as e:
+            logger.error(str(e))
+            return 1
+        metrics.update(context_result['metrics'])
+        context.write_contig_sources(outputs['contig_sources'], context_result['contigs'])
+        context.write_missed_contigs(outputs['missed_contigs'], context_result['missed_contigs'], bins, args.output_bases_per_line)
+
     logger.info("Assessment: " + json.dumps(metrics))
-    assessment.write_metrics(outputs['assessment'], metrics)
+    assessment.write_metrics(outputs['assessment'], metrics, assessment.METRICS_FIELDNAMES + context.CONTEXT_METRICS_FIELDNAMES)
     assessment.write_gaps_bed(outputs['gaps'], assessment_result['gaps'], ref_plasmid_id, ref_plasmid_length)
     assessment.write_events(outputs['events'], assessment_result['events'])
     assessment.write_unaligned_fasta(outputs['unaligned'], assessment_result['unaligned_regions'], args.output_bases_per_line)

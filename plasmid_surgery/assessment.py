@@ -345,9 +345,12 @@ def assess(contigs: list[dict], alignments: list[dict], ref_length: int,
     }
 
 
-def write_metrics(path, metrics: dict) -> None:
+def write_metrics(path, metrics: dict, fieldnames: list = METRICS_FIELDNAMES) -> None:
+    """
+    Write one row of metrics. Fields missing from metrics are written as 'NA'.
+    """
     with open(path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=METRICS_FIELDNAMES, delimiter='\t', extrasaction='ignore')
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='\t', extrasaction='ignore', restval='NA')
         writer.writeheader()
         writer.writerow(metrics)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import logging
 import subprocess
@@ -235,6 +236,54 @@ def select_alternative_placements(aligned_segments: list[dict], min_score_ratio:
         aln['num_placements'] = 1 + len(alternatives)
 
     return placement, alternatives, rejected
+
+
+def align_contigs(contigs: list[dict], ref: dict, tmpdir: Path) -> dict:
+    """
+    Align contigs against a circular reference, apply alignment QC, and
+    separate each contig's placement from its alternative placements.
+
+    :param contigs: Contigs, as parsed by parsers.parse_fasta
+    :param ref: Circular reference, as parsed by parsers.parse_fasta
+    :param tmpdir: Directory for intermediate files
+    :return: dict with lists of aligned segments:
+             'placements' (primary + supplementary, passed QC),
+             'alternatives' (secondaries that are alternative placements, passed QC),
+             'failed' (failed QC, unmapped, or secondaries too weak to be alternatives)
+    :raises AlignmentError: if minimap2 fails
+    """
+    placements = []
+    alternatives = []
+    failed = []
+    for contig in contigs:
+        contig_id = contig['seq_id']
+        logger.debug(f"Aligning contig: {contig_id} vs. ref: {ref['seq_id']}")
+        aligned_segments = align_contig_vs_circular_ref(contig, ref, tmpdir)
+        if not aligned_segments:
+            logger.debug(f"Zero alignments for contig: {contig_id} vs. ref: {ref['seq_id']}")
+            continue
+
+        passed = []
+        for aligned_segment in aligned_segments:
+            qc = alignment_qc(aligned_segment)
+            if not qc['overall_qc_pass']:
+                if aligned_segment.get('is_mapped'):
+                    logger.debug(f"Alignment of {contig_id} failed quality filters: " + json.dumps(qc['qc_stats']))
+                aligned_segment['included_in_output'] = False
+                failed.append(aligned_segment)
+                continue
+            passed.append(aligned_segment)
+
+        placement, contig_alternatives, rejected = select_alternative_placements(passed)
+        if contig_alternatives:
+            logger.debug(f"Contig {contig_id} has {len(contig_alternatives)} alternative placement(s) on the ref (e.g. a repeat)")
+        for aln in rejected:
+            aln['included_in_output'] = False
+        placements += placement
+        alternatives += contig_alternatives
+        failed += rejected
+
+    return {'placements': placements, 'alternatives': alternatives, 'failed': failed}
 
 
 def alignment_qc(aln, min_identity=80.0, min_aln_length=50, max_gap_frac=0.8):

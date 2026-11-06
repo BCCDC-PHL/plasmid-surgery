@@ -112,9 +112,28 @@ optional by-product.
   preferring higher MAPQ / higher identity / longer alignments.
 - [ ] Per-contig SNP and indel counts.
 
+## Phase 3b: Whole-assembly context
+
+Prompted by real-data validation (3 public isolates, Nov 2026): most reconstruction losses were
+mob_recon binning (sequence assembled, but put in another bin or the chromosome), not assembly.
+
+- [x] `--assembly` + `--bins`: classify every assembly contig aligning to the ref
+  (`in_reconstruction` / `missed` / `shared` / `repeat`), with bin labels and relative read depth;
+  `contig_sources.tsv`, `missed_contigs.fa`, and assembly-level metrics separating binning losses
+  (`missed_ref_bases`) from assembly losses (`assembly_unique_gap_length`).
+- [ ] Gene/feature input (e.g. AMRFinderPlus or abricate output, or mob_recon's
+  `biomarkers.blast.txt`), to report directly which contig carries the carbapenemase and how it was
+  classified.
+- [ ] TaDReP compatibility: run it on the validation isolates, confirm its output names and
+  whether contig IDs are kept (sequence matching shouldn't need them), and compare with mob_recon.
+- [ ] Optionally add `missed` contigs to the scaffold (marked), for a "best possible" reconstruction.
+- [ ] Assembly graph (GFA) input, deferred: check whether contigs on either side of a gap are
+  connected by a graph path of about the right length (gap bridgeable vs. truly missing).
+
 ## Phase 4: Architecture and outputs
 
-- [ ] One minimap2 call per sample (all contigs) instead of one per contig; write
+- [ ] One minimap2 call per sample (all contigs) instead of one per contig (now more
+  pressing: whole-assembly mode aligns every assembly contig, twice); write
   PAF, or SAM with `-Y` so supplementary alignments keep correct query
   coordinates (currently hard-clipped).
 - [ ] Avoid per-contig temp files named after contig IDs (unsafe characters).
