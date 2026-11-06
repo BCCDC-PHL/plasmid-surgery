@@ -81,13 +81,22 @@ optional by-product.
     on both query and ref, would cover this.
   - [ ] Two alignments per contig doubles minimap2 runtime; fine for now, revisit
     together with the "one minimap2 call per sample" item in Phase 4.
-- [ ] **Reference coverage.** Breadth covered 1x, covered >1x; BED of uncovered gaps
+- [x] **Reference coverage.** Breadth covered 1x, covered >1x; BED of uncovered gaps
   with lengths.
-- [ ] **Reconstruction accounted for.** Per contig, fraction of contig length
+- [x] **Reconstruction accounted for.** Per contig, fraction of contig length
   aligned. Unaligned contigs and long soft-clipped ends are candidate insertions,
   chromosomal contamination or a different plasmid. Report them, don't drop them.
-- [ ] **Deletions visible.** Large `D` operations inside an alignment (like the
+- [x] **Deletions visible.** Large `D` operations inside an alignment (like the
   2 kb test deletion) are currently absorbed silently; report them as events.
+  Done as `--assessment-output` (one row of metrics), `--gaps-output` (BED),
+  `--events-output` (insertions/deletions >= `--min-indel-length`) and
+  `--unaligned-output` (FASTA of contig regions not aligned to the ref).
+  - [ ] Large insertions within alignments count as "aligned" contig bases;
+    consider also writing their sequence to the unaligned FASTA (or a separate
+    insertions FASTA) so novel sequence is all in one place.
+  - [ ] Distinguish gaps at repeat copies (likely just collapsed repeats) from
+    gaps in unique sequence (likely genuinely missing), once repeat awareness
+    and/or ref annotation are in.
 - [ ] **Structural consistency.** Walk placements around the circle and flag order
   breaks, strand flips and split alignments mapping to distant loci.
 - [ ] **Repeat awareness.** Use MAPQ and multiple alignments (`-N 5` instead of

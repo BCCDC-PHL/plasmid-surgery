@@ -1,13 +1,15 @@
 """
 End-to-end tests on simulated data. Require minimap2 on PATH.
 """
+import csv
+import random
 import shutil
 
 import pytest
 
 from plasmid_surgery.__main__ import main
 from plasmid_surgery.parsers import parse_fasta
-from tests.simulate import simulate, write_fasta, revcomp
+from tests.simulate import simulate, write_fasta, revcomp, random_seq
 
 pytestmark = pytest.mark.skipif(shutil.which('minimap2') is None, reason="minimap2 not on PATH")
 
@@ -18,10 +20,10 @@ def read_summary(path):
     return [dict(zip(header, line.split('\t'))) for line in lines[1:]]
 
 
-def run(tmp_path, sim):
+def run(tmp_path, sim, contigs=None):
     recon = tmp_path / "recon.fa"
     ref = tmp_path / "ref.fa"
-    write_fasta(recon, sim['contigs'])
+    write_fasta(recon, contigs if contigs is not None else sim['contigs'])
     write_fasta(ref, [('ref', sim['ref'])])
     out = tmp_path / "out" / "out.fa"
     summary = tmp_path / "out" / "summary.tsv"
@@ -31,6 +33,10 @@ def run(tmp_path, sim):
         '--tmpdir', str(tmp_path / "tmp"),
         '--output', str(out),
         '--summary-output', str(summary),
+        '--assessment-output', str(tmp_path / "out" / "assessment.tsv"),
+        '--gaps-output', str(tmp_path / "out" / "gaps.bed"),
+        '--events-output', str(tmp_path / "out" / "events.tsv"),
+        '--unaligned-output', str(tmp_path / "out" / "unaligned.fa"),
         '--log-level', 'warning',
     ])
     assert rc == 0
@@ -144,3 +150,75 @@ def test_stale_ref_in_tmpdir_not_reused(tmp_path, sim):
     write_fasta(tmpdir / "ref.fa", [('ref', 'ACGT' * 1000)])
     output, rows = run(tmp_path, sim)
     assert all(r['is_mapped'] == 'True' for r in rows)
+
+
+# --- assessment outputs ---
+
+def read_tsv(path):
+    with open(path) as f:
+        return list(csv.DictReader(f, delimiter='\t'))
+
+
+def test_assessment_metrics(tmp_path, sim):
+    run(tmp_path, sim)
+    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    ref_length = len(sim['ref'])
+    repeat_length = len(sim['repeat'])
+    assert m['sample_id'] == 'recon'
+    assert int(m['ref_length']) == ref_length
+    # The collapsed repeat contig covers one of three repeat copies
+    assert int(m['num_gaps']) == 2
+    assert int(m['total_gap_length']) == 2 * repeat_length
+    assert int(m['ref_bases_covered']) == ref_length - 2 * repeat_length
+    assert int(m['ref_bases_covered_multiple']) == 0
+    assert m['contig_fraction_aligned'] == '1.0'
+    assert int(m['num_unaligned_contigs']) == 0
+    assert int(m['num_large_insertions']) == 1
+    assert int(m['num_large_deletions']) == 1
+    assert int(m['num_ambiguous_alignments']) == 1
+
+
+def test_gaps_bed_are_repeat_copies(tmp_path, sim):
+    run(tmp_path, sim)
+    lines = (tmp_path / "out" / "gaps.bed").read_text().splitlines()
+    assert len(lines) == 2
+    for line in lines:
+        _, start, end, _ = line.split('\t')
+        assert sim['ref'][int(start):int(end)] == sim['repeat']
+
+
+def test_events_match_simulated_indels(tmp_path, sim):
+    # simulate() deletes ref[5000:7000] and inserts 3 kb of novel sequence at ref 40000
+    run(tmp_path, sim)
+    events = {e['event_type']: e for e in read_tsv(tmp_path / "out" / "events.tsv")}
+    assert set(events) == {'insertion', 'deletion'}
+    deletion = events['deletion']
+    assert abs(int(deletion['ref_start']) - 5000) <= 10
+    assert abs(int(deletion['length']) - 2000) <= 10
+    insertion = events['insertion']
+    assert abs(int(insertion['ref_start']) - 40000) <= 10
+    assert abs(int(insertion['length']) - 3000) <= 10
+
+
+def test_unaligned_sequence_reported(tmp_path, sim):
+    rng = random.Random(99)
+    foreign_tail = random_seq(rng, 2000)
+    contaminant = random_seq(rng, 5000)
+    contigs = list(sim['contigs'])
+    tail_contig_id, tail_contig_seq = contigs[2]
+    contigs[2] = (tail_contig_id, tail_contig_seq + foreign_tail)
+    contigs.append(('contaminant', contaminant))
+    _, rows = run(tmp_path, sim, contigs=contigs)
+
+    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    assert int(m['num_unaligned_contigs']) == 1
+    assert int(m['num_unaligned_regions']) == 2
+
+    unaligned = {r['seq_id']: r for r in parse_fasta(tmp_path / "out" / "unaligned.fa")}
+    tail_region_id = f"{tail_contig_id}:{len(tail_contig_seq) + 1}-{len(tail_contig_seq) + 2000}"
+    assert unaligned[tail_region_id]['seq'] == foreign_tail
+    assert unaligned['contaminant:1-5000']['seq'] == contaminant
+
+    fractions = {r['contig_id']: float(r['contig_fraction_aligned']) for r in rows}
+    assert fractions['contaminant'] == 0.0
+    assert fractions[tail_contig_id] == pytest.approx(len(tail_contig_seq) / (len(tail_contig_seq) + 2000), abs=1e-3)

@@ -9,6 +9,7 @@ from textwrap import wrap
 
 import plasmid_surgery.parsers as parsers
 import plasmid_surgery.alignment as alignment
+import plasmid_surgery.assessment as assessment
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,8 @@ SUMMARY_OUTPUT_FIELDNAMES = [
     'is_supplementary',
     'spans_origin',
     'mapq',
+    'contig_length',
+    'contig_fraction_aligned',
     'alignment_start',
     'alignment_end',
     'alignment_length',
@@ -52,6 +55,12 @@ def parse_args(argv=None):
     parser.add_argument('--tmpdir', default="./plasmid-surgery_tmp", help="temp dir to use for minimap2 alignments (default: './plasmid-surgery_tmp')")
     parser.add_argument('--summary-output', default='./plasmid-surgery-summary.tsv', help="Summary file for plasmid surgery process. (default: './plasmid-surgery-summary.tsv')")
     parser.add_argument('--output', default='./plasmid-surgery-output.fa', help="Path to output file for repaired plasmid reconstruction (default: './plasmid-surgery-output.fa')")
+    parser.add_argument('--assessment-output', default='./plasmid-surgery-assessment.tsv', help="Assessment metrics for the reconstruction vs. the ref plasmid (one row). (default: './plasmid-surgery-assessment.tsv')")
+    parser.add_argument('--gaps-output', default='./plasmid-surgery-gaps.bed', help="BED file of ref plasmid regions not covered by any contig. (default: './plasmid-surgery-gaps.bed')")
+    parser.add_argument('--events-output', default='./plasmid-surgery-events.tsv', help="Large insertions/deletions in contigs relative to the ref plasmid. (default: './plasmid-surgery-events.tsv')")
+    parser.add_argument('--unaligned-output', default='./plasmid-surgery-unaligned.fa', help="Contig regions that don't align to the ref plasmid. (default: './plasmid-surgery-unaligned.fa')")
+    parser.add_argument('--min-indel-length', type=int, default=50, help="Minimum length of an insertion/deletion to report as an event (default: 50)")
+    parser.add_argument('--min-unaligned-length', type=int, default=100, help="Minimum length of an unaligned contig region to report (default: 100)")
     parser.add_argument('--output-seq-id', help="Sequence ID to use in the output fasta header. If not supplied, uses plasmid reconstruction filename (minus file extension)")
     parser.add_argument('--output-bases-per-line', type=int, default=70, help="Number of bases per line in the output fasta (default: 70)")
     parser.add_argument('--log-level', default='info', help="Log level (default: 'info')")
@@ -69,7 +78,7 @@ def ensure_parent_dir(path):
         os.makedirs(parent, exist_ok=True)
 
 
-def summary_row(aligned_contig: dict, ref_id: str, ref_length: int) -> dict:
+def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fraction_aligned: dict) -> dict:
     """
     Build a summary output row for one aligned segment.
     """
@@ -83,6 +92,8 @@ def summary_row(aligned_contig: dict, ref_id: str, ref_length: int) -> dict:
         'is_supplementary': aligned_contig.get('is_supplementary', None),
         'spans_origin': aligned_contig.get('spans_origin', False),
         'mapq': aligned_contig.get('mapq', None),
+        'contig_length': aligned_contig.get('query_full_length', None),
+        'contig_fraction_aligned': contig_fraction_aligned.get(aligned_contig.get('contig_id'), 0.0),
         'alignment_start': aligned_contig.get('ref_start', None),
         'alignment_end': aligned_contig.get('ref_end', None),
         'alignment_length': aligned_contig.get('query_alignment_length', None),
@@ -111,8 +122,8 @@ def summary_sort_key(row: dict):
 def main(argv=None):
     args = parse_args(argv)
     setup_logging(args.log_level)
-    ensure_parent_dir(args.output)
-    ensure_parent_dir(args.summary_output)
+    for path in [args.output, args.summary_output, args.assessment_output, args.gaps_output, args.events_output, args.unaligned_output]:
+        ensure_parent_dir(path)
 
     plasmid_reconstruction_contigs = parsers.parse_fasta(args.plasmid_reconstruction)
     ref_plasmids = parsers.parse_fasta(args.ref_plasmid)
@@ -161,7 +172,22 @@ def main(argv=None):
 
     output_seq = alignment.build_output_sequence(aligned_contigs, ref_plasmid_length)
 
-    summary_output = [summary_row(a, ref_plasmid_id, ref_plasmid_length) for a in aligned_contigs + failed_alignments]
+    assessment_result = assessment.assess(
+        plasmid_reconstruction_contigs,
+        aligned_contigs,
+        ref_plasmid_length,
+        min_indel_length=args.min_indel_length,
+        min_unaligned_length=args.min_unaligned_length,
+    )
+    metrics = {'sample_id': output_seq_id, 'ref_id': ref_plasmid_id, **assessment_result['metrics']}
+    logger.info("Assessment: " + json.dumps(metrics))
+    assessment.write_metrics(args.assessment_output, metrics)
+    assessment.write_gaps_bed(args.gaps_output, assessment_result['gaps'], ref_plasmid_id, ref_plasmid_length)
+    assessment.write_events(args.events_output, assessment_result['events'])
+    assessment.write_unaligned_fasta(args.unaligned_output, assessment_result['unaligned_regions'], args.output_bases_per_line)
+
+    contig_fraction_aligned = assessment_result['contig_fraction_aligned']
+    summary_output = [summary_row(a, ref_plasmid_id, ref_plasmid_length, contig_fraction_aligned) for a in aligned_contigs + failed_alignments]
     summary_output_sorted = sorted(summary_output, key=summary_sort_key)
     with open(args.summary_output, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=SUMMARY_OUTPUT_FIELDNAMES, delimiter='\t', extrasaction='ignore', quoting=csv.QUOTE_MINIMAL)
