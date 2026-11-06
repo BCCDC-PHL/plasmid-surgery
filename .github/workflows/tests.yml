@@ -1,0 +1,31 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          environment-file: environment.yml
+          activate-environment: plasmid-surgery
+          conda-remove-defaults: true
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Check minimap2 is available
+        run: minimap2 --version
+
+      - name: Run tests
+        run: pytest -v

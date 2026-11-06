@@ -19,6 +19,7 @@ SUMMARY_OUTPUT_FIELDNAMES = [
     'reverse_complement',
     'is_mapped',
     'is_supplementary',
+    'spans_origin',
     'mapq',
     'alignment_start',
     'alignment_end',
@@ -80,6 +81,7 @@ def summary_row(aligned_contig: dict, ref_id: str, ref_length: int) -> dict:
         'reverse_complement': aligned_contig.get('is_reverse', None),
         'is_mapped': is_mapped,
         'is_supplementary': aligned_contig.get('is_supplementary', None),
+        'spans_origin': aligned_contig.get('spans_origin', False),
         'mapq': aligned_contig.get('mapq', None),
         'alignment_start': aligned_contig.get('ref_start', None),
         'alignment_end': aligned_contig.get('ref_end', None),
@@ -87,8 +89,11 @@ def summary_row(aligned_contig: dict, ref_id: str, ref_length: int) -> dict:
         'percent_identity': aligned_contig.get('percent_identity', None),
         'included_in_output': aligned_contig.get('included_in_output', False),
     }
+    if is_mapped and row['alignment_end'] > ref_length:
+        # Alignment wraps around the origin: alignment_end < alignment_start
+        row['alignment_end'] -= ref_length
     if not is_mapped:
-        for field in ['reverse_complement', 'is_supplementary', 'mapq', 'alignment_start', 'alignment_end', 'alignment_length', 'percent_identity']:
+        for field in ['reverse_complement', 'is_supplementary', 'spans_origin', 'mapq', 'alignment_start', 'alignment_end', 'alignment_length', 'percent_identity']:
             row[field] = 'NA'
 
     return row
@@ -132,7 +137,7 @@ def main(argv=None):
         contig_id = contig['seq_id']
         logger.info(f"Aligning contig: {contig_id} vs. ref plasmid: {ref_plasmid_id}")
         try:
-            aligned_segments = alignment.align_contig_vs_ref(contig, ref_plasmid, args.tmpdir)
+            aligned_segments = alignment.align_contig_vs_circular_ref(contig, ref_plasmid, args.tmpdir)
         except alignment.AlignmentError as e:
             logger.error(str(e))
             return 1
