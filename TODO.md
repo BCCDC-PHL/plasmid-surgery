@@ -115,7 +115,8 @@ optional by-product.
   PAF, or SAM with `-Y` so supplementary alignments keep correct query
   coordinates (currently hard-clipped).
 - [ ] Avoid per-contig temp files named after contig IDs (unsafe characters).
-  Use `tempfile` and clean up by default.
+- [x] Use `tempfile` and clean up by default (`--tmpdir` keeps intermediates).
+- [x] `-o/--outdir` + optional `-p/--prefix` instead of one flag per output file.
 - [ ] Parse alignments into a typed record (dataclass) rather than dicts.
 - [ ] Scaffold output in standard formats: AGP + FASTA, gaps sized by estimate (or
   fixed 100 N when unknown), never filled from reference; unplaced contigs written

@@ -20,29 +20,26 @@ def read_summary(path):
     return [dict(zip(header, line.split('\t'))) for line in lines[1:]]
 
 
-def run(tmp_path, sim, contigs=None):
+def run(tmp_path, sim, contigs=None, prefix=None, extra_args=()):
     recon = tmp_path / "recon.fa"
     ref = tmp_path / "ref.fa"
     write_fasta(recon, contigs if contigs is not None else sim['contigs'])
     write_fasta(ref, [('ref', sim['ref'])])
-    out = tmp_path / "out" / "out.fa"
-    summary = tmp_path / "out" / "summary.tsv"
+    out_dir = tmp_path / "out"
     rc = main([
         '--plasmid-reconstruction', str(recon),
         '--ref-plasmid', str(ref),
         '--tmpdir', str(tmp_path / "tmp"),
-        '--output', str(out),
-        '--summary-output', str(summary),
-        '--assessment-output', str(tmp_path / "out" / "assessment.tsv"),
-        '--gaps-output', str(tmp_path / "out" / "gaps.bed"),
-        '--events-output', str(tmp_path / "out" / "events.tsv"),
-        '--unaligned-output', str(tmp_path / "out" / "unaligned.fa"),
+        '-o', str(out_dir),
         '--log-level', 'warning',
+        *(['-p', prefix] if prefix else []),
+        *extra_args,
     ])
     assert rc == 0
-    output = parse_fasta(out)
+    name = (lambda f: f"{prefix}_{f}") if prefix else (lambda f: f)
+    output = parse_fasta(out_dir / name("scaffold.fa"))
     assert len(output) == 1
-    return output[0], read_summary(summary)
+    return output[0], read_summary(out_dir / name("summary.tsv"))
 
 
 def contained_circularly(segment, seq):
@@ -130,17 +127,44 @@ def test_origin_spanning_contig_with_split_gap(tmp_path):
     assert contained_circularly(segment[:-127], output['seq'])
 
 
-def test_bare_filename_outputs(tmp_path, sim, monkeypatch):
-    # --output with no directory component used to crash in os.makedirs('')
+EXPECTED_OUTPUTS = ['assessment.tsv', 'gaps.bed', 'events.tsv', 'unaligned.fa', 'summary.tsv', 'scaffold.fa']
+
+
+def test_default_outdir_is_cwd_and_tmpdir_cleaned_up(tmp_path, sim, monkeypatch):
     monkeypatch.chdir(tmp_path)
     write_fasta('recon.fa', sim['contigs'])
     write_fasta('ref.fa', [('ref', sim['ref'])])
     rc = main(['--plasmid-reconstruction', 'recon.fa', '--ref-plasmid', 'ref.fa',
-               '--output', 'out.fa', '--summary-output', 'summary.tsv',
                '--output-bases-per-line', '60', '--log-level', 'warning'])
     assert rc == 0
-    lines = (tmp_path / 'out.fa').read_text().splitlines()
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(EXPECTED_OUTPUTS + ['recon.fa', 'ref.fa'])
+    lines = (tmp_path / 'scaffold.fa').read_text().splitlines()
+    assert lines[0] == '>recon'
     assert max(len(l) for l in lines[1:]) == 60
+
+
+def test_outdir_and_prefix(tmp_path, sim):
+    recon = tmp_path / "recon.fa"
+    ref = tmp_path / "ref.fa"
+    write_fasta(recon, sim['contigs'])
+    write_fasta(ref, [('ref', sim['ref'])])
+    out_dir = tmp_path / "nested" / "out"
+    rc = main(['--plasmid-reconstruction', str(recon), '--ref-plasmid', str(ref),
+               '-o', str(out_dir), '-p', 'sample1', '--log-level', 'warning'])
+    assert rc == 0
+    assert sorted(p.name for p in out_dir.iterdir()) == sorted(f"sample1_{name}" for name in EXPECTED_OUTPUTS)
+    # Prefix is the default sample ID
+    assert (out_dir / 'sample1_scaffold.fa').read_text().startswith('>sample1\n')
+    [m] = read_tsv(out_dir / 'sample1_assessment.tsv')
+    assert m['sample_id'] == 'sample1'
+
+
+def test_sample_id_overrides_prefix(tmp_path, sim):
+    output, _ = run(tmp_path, sim, prefix='run42', extra_args=['--sample-id', 'sample1'])
+    assert output['seq_id'] == 'sample1'
+    out_dir = tmp_path / "out"
+    [m] = read_tsv(out_dir / 'run42_assessment.tsv')
+    assert m['sample_id'] == 'sample1'
 
 
 def test_stale_ref_in_tmpdir_not_reused(tmp_path, sim):

@@ -4,7 +4,9 @@ import json
 import logging
 import os
 import sys
+import tempfile
 
+from pathlib import Path
 from textwrap import wrap
 
 import plasmid_surgery.parsers as parsers
@@ -12,6 +14,16 @@ import plasmid_surgery.alignment as alignment
 import plasmid_surgery.assessment as assessment
 
 logger = logging.getLogger(__name__)
+
+# Output files written to --outdir, named '<prefix>_<filename>' if --prefix is given
+OUTPUT_FILENAMES = {
+    'assessment': 'assessment.tsv',
+    'gaps': 'gaps.bed',
+    'events': 'events.tsv',
+    'unaligned': 'unaligned.fa',
+    'summary': 'summary.tsv',
+    'scaffold': 'scaffold.fa',
+}
 
 SUMMARY_OUTPUT_FIELDNAMES = [
     'contig_id',
@@ -52,30 +64,32 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(prog='plasmid-surgery')
     parser.add_argument('--plasmid-reconstruction', required=True, help="Plasmid reconstruction to be repaired.")
     parser.add_argument('--ref-plasmid', required=True, help="Reference plasmid to be used for plasmid surgery.")
-    parser.add_argument('--tmpdir', default="./plasmid-surgery_tmp", help="temp dir to use for minimap2 alignments (default: './plasmid-surgery_tmp')")
-    parser.add_argument('--summary-output', default='./plasmid-surgery-summary.tsv', help="Summary file for plasmid surgery process. (default: './plasmid-surgery-summary.tsv')")
-    parser.add_argument('--output', default='./plasmid-surgery-output.fa', help="Path to output file for repaired plasmid reconstruction (default: './plasmid-surgery-output.fa')")
-    parser.add_argument('--assessment-output', default='./plasmid-surgery-assessment.tsv', help="Assessment metrics for the reconstruction vs. the ref plasmid (one row). (default: './plasmid-surgery-assessment.tsv')")
-    parser.add_argument('--gaps-output', default='./plasmid-surgery-gaps.bed', help="BED file of ref plasmid regions not covered by any contig. (default: './plasmid-surgery-gaps.bed')")
-    parser.add_argument('--events-output', default='./plasmid-surgery-events.tsv', help="Large insertions/deletions in contigs relative to the ref plasmid. (default: './plasmid-surgery-events.tsv')")
-    parser.add_argument('--unaligned-output', default='./plasmid-surgery-unaligned.fa', help="Contig regions that don't align to the ref plasmid. (default: './plasmid-surgery-unaligned.fa')")
+    parser.add_argument('-o', '--outdir', default='.', help="Output directory (default: current directory)")
+    parser.add_argument('-p', '--prefix', help="Prefix for output filenames, e.g. '-p sample1' gives 'sample1_assessment.tsv' (default: no prefix)")
+    parser.add_argument('--tmpdir', help="Directory for intermediate minimap2 files, kept after the run. If not supplied, a temporary directory is used and removed afterwards.")
     parser.add_argument('--min-indel-length', type=int, default=50, help="Minimum length of an insertion/deletion to report as an event (default: 50)")
     parser.add_argument('--min-unaligned-length', type=int, default=100, help="Minimum length of an unaligned contig region to report (default: 100)")
-    parser.add_argument('--output-seq-id', help="Sequence ID to use in the output fasta header. If not supplied, uses plasmid reconstruction filename (minus file extension)")
-    parser.add_argument('--output-bases-per-line', type=int, default=70, help="Number of bases per line in the output fasta (default: 70)")
+    parser.add_argument('--sample-id', help="Sample ID, used as the scaffold fasta header and the sample_id in assessment output. If not supplied, uses --prefix if given, otherwise the plasmid reconstruction filename (minus file extension)")
+    parser.add_argument('--output-bases-per-line', type=int, default=70, help="Number of bases per line in output fasta files (default: 70)")
     parser.add_argument('--log-level', default='info', help="Log level (default: 'info')")
     args = parser.parse_args(argv)
 
     return args
 
 
-def ensure_parent_dir(path):
+def output_paths(outdir, prefix=None) -> dict:
     """
-    Create the parent directory of path, if it has one and it doesn't exist.
+    Paths of all output files.
+
+    :param outdir: Output directory
+    :param prefix: Optional filename prefix
+    :return: dict of output name (keys of OUTPUT_FILENAMES) -> Path
     """
-    parent = os.path.dirname(path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+    outdir = Path(outdir)
+    return {
+        name: outdir / (f"{prefix}_{filename}" if prefix else filename)
+        for name, filename in OUTPUT_FILENAMES.items()
+    }
 
 
 def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fraction_aligned: dict) -> dict:
@@ -122,8 +136,25 @@ def summary_sort_key(row: dict):
 def main(argv=None):
     args = parse_args(argv)
     setup_logging(args.log_level)
-    for path in [args.output, args.summary_output, args.assessment_output, args.gaps_output, args.events_output, args.unaligned_output]:
-        ensure_parent_dir(path)
+    outputs = output_paths(args.outdir, args.prefix)
+    os.makedirs(args.outdir, exist_ok=True)
+
+    if args.tmpdir:
+        os.makedirs(args.tmpdir, exist_ok=True)
+        return run(args, outputs, args.tmpdir)
+    with tempfile.TemporaryDirectory(prefix='plasmid-surgery_') as tmpdir:
+        return run(args, outputs, tmpdir)
+
+
+def run(args, outputs: dict, tmpdir) -> int:
+    """
+    Align, assess and write outputs.
+
+    :param args: Parsed command-line arguments
+    :param outputs: Output paths, from output_paths
+    :param tmpdir: Directory for intermediate files
+    :return: Exit code
+    """
 
     plasmid_reconstruction_contigs = parsers.parse_fasta(args.plasmid_reconstruction)
     ref_plasmids = parsers.parse_fasta(args.ref_plasmid)
@@ -136,11 +167,13 @@ def main(argv=None):
     ref_plasmid_length = len(ref_plasmid['seq'])
     ref_plasmid_id = ref_plasmid['seq_id']
 
-    if args.output_seq_id:
-        output_seq_id = args.output_seq_id
+    if args.sample_id:
+        sample_id = args.sample_id
+    elif args.prefix:
+        sample_id = args.prefix
     else:
         plasmid_reconstruction_basename = os.path.basename(args.plasmid_reconstruction)
-        output_seq_id = plasmid_reconstruction_basename.split('.')[0]
+        sample_id = plasmid_reconstruction_basename.split('.')[0]
 
     aligned_contigs = []
     failed_alignments = []
@@ -148,7 +181,7 @@ def main(argv=None):
         contig_id = contig['seq_id']
         logger.info(f"Aligning contig: {contig_id} vs. ref plasmid: {ref_plasmid_id}")
         try:
-            aligned_segments = alignment.align_contig_vs_circular_ref(contig, ref_plasmid, args.tmpdir)
+            aligned_segments = alignment.align_contig_vs_circular_ref(contig, ref_plasmid, tmpdir)
         except alignment.AlignmentError as e:
             logger.error(str(e))
             return 1
@@ -179,25 +212,25 @@ def main(argv=None):
         min_indel_length=args.min_indel_length,
         min_unaligned_length=args.min_unaligned_length,
     )
-    metrics = {'sample_id': output_seq_id, 'ref_id': ref_plasmid_id, **assessment_result['metrics']}
+    metrics = {'sample_id': sample_id, 'ref_id': ref_plasmid_id, **assessment_result['metrics']}
     logger.info("Assessment: " + json.dumps(metrics))
-    assessment.write_metrics(args.assessment_output, metrics)
-    assessment.write_gaps_bed(args.gaps_output, assessment_result['gaps'], ref_plasmid_id, ref_plasmid_length)
-    assessment.write_events(args.events_output, assessment_result['events'])
-    assessment.write_unaligned_fasta(args.unaligned_output, assessment_result['unaligned_regions'], args.output_bases_per_line)
+    assessment.write_metrics(outputs['assessment'], metrics)
+    assessment.write_gaps_bed(outputs['gaps'], assessment_result['gaps'], ref_plasmid_id, ref_plasmid_length)
+    assessment.write_events(outputs['events'], assessment_result['events'])
+    assessment.write_unaligned_fasta(outputs['unaligned'], assessment_result['unaligned_regions'], args.output_bases_per_line)
 
     contig_fraction_aligned = assessment_result['contig_fraction_aligned']
     summary_output = [summary_row(a, ref_plasmid_id, ref_plasmid_length, contig_fraction_aligned) for a in aligned_contigs + failed_alignments]
     summary_output_sorted = sorted(summary_output, key=summary_sort_key)
-    with open(args.summary_output, 'w', newline='') as f:
+    with open(outputs['summary'], 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=SUMMARY_OUTPUT_FIELDNAMES, delimiter='\t', extrasaction='ignore', quoting=csv.QUOTE_MINIMAL)
         writer.writeheader()
         for row in summary_output_sorted:
             writer.writerow(row)
 
     output_seq_wrapped = wrap(output_seq, args.output_bases_per_line)
-    with open(args.output, 'w') as f:
-        f.write(f">{output_seq_id}\n")
+    with open(outputs['scaffold'], 'w') as f:
+        f.write(f">{sample_id}\n")
         for line in output_seq_wrapped:
             f.write(f"{line}\n")
 
