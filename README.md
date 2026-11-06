@@ -75,11 +75,11 @@ prefixed by `<prefix>_` if `--prefix` is given.
 | file             | description |
 |------------------|-------------|
 | `assessment.tsv` | One-row summary of how well the reconstruction matches the ref (see below). Rows from many samples can be concatenated. |
-| `gaps.bed`       | BED4 of ref regions not covered by any contig. A gap spanning the origin is written as two records with the same name. |
+| `gaps.bed`       | BED4 of ref regions not covered by any contig, named `gap_<n>_<type>` where type is `repeat` or `unique` (see [Repeats](#repeats)). A gap spanning the origin is written as two records with the same name. |
 | `events.tsv`     | Insertions and deletions of at least `--min-indel-length` bp within contig alignments. |
 | `unaligned.fa`   | Contig regions of at least `--min-unaligned-length` bp that don't align to the ref (whole unaligned contigs, or unaligned contig ends). Headers are `<contig_id>:<start>-<end>`, 1-based inclusive. |
 | `summary.tsv`    | One row per contig alignment (see below). |
-| `scaffold.fa`    | Reference-ordered sequence built from the aligned contigs (see [Output sequence](#scaffold-sequence)). Header is the sample ID. |
+| `scaffold.fa`    | Reference-ordered sequence built from the aligned contigs, with inferred repeat copies in lowercase (see [Scaffold sequence](#scaffold-sequence)). Header is the sample ID. |
 
 Intermediate minimap2 files go to a temporary directory that is removed after the run,
 unless `--tmpdir` is given, in which case they are kept there.
@@ -94,13 +94,17 @@ unless `--tmpdir` is given, in which case they are kept there.
 | `ref_bases_covered`          | Ref bases covered by at least one contig alignment |
 | `ref_fraction_covered`       | `ref_bases_covered / ref_length` |
 | `ref_bases_covered_multiple` | Ref bases covered by more than one alignment (contig overlaps, or duplicated sequence) |
-| `num_gaps`, `total_gap_length`, `largest_gap_length` | Uncovered ref regions |
+| `ref_fraction_covered_including_repeats` | As `ref_fraction_covered`, also counting repeat gaps as covered |
+| `num_gaps`, `total_gap_length`, `largest_gap_length` | Uncovered ref regions (repeat and unique) |
+| `num_repeat_gaps`, `repeat_gap_length` | Uncovered ref regions where an ambiguous contig could be placed: likely a collapsed repeat, present in the reconstruction but not placed there |
+| `num_unique_gaps`, `unique_gap_length`, `largest_unique_gap_length` | Uncovered ref regions no contig could be placed at: likely genuinely missing from the reconstruction |
 | `contig_bases_aligned`       | Contig bases within an alignment to the ref (including inserted bases inside alignments; see `num_large_insertions`) |
 | `contig_fraction_aligned`    | `contig_bases_aligned / total_contig_length`. Sequence not accounted for by the ref is in the unaligned output. |
 | `num_unaligned_contigs`      | Contigs with no alignment to the ref that passed QC: possible chromosomal contamination or a different plasmid |
 | `num_unaligned_regions`, `unaligned_region_bases` | Regions written to the unaligned output |
 | `num_large_insertions`, `num_large_deletions` | Events written to the events output |
-| `num_ambiguous_alignments`   | Alignments with mapping quality 0: the contig aligns equally well elsewhere on the ref (e.g. a repeated IS element), so its placement is arbitrary |
+| `num_ambiguous_alignments`   | Placement alignments with mapping quality 0: the contig aligns equally well elsewhere on the ref (e.g. a repeated IS element) |
+| `num_ambiguous_contigs`      | Contigs with at least one alternative placement (see [Repeats](#repeats)) |
 
 Assessment metrics use only alignments that passed QC.
 
@@ -126,6 +130,8 @@ Assessment metrics use only alignments that passed QC.
 | `reverse_complement` | Aligned sequence is reverse-complement of original contig seq           |
 | `is_mapped`          | Contig is mapped somewhere against the ref plasmid                      |
 | `is_supplementary`   | Alignment is a supplementary (split) alignment of the contig            |
+| `is_secondary`       | Alignment is a secondary alignment: an alternative placement of the contig if `included_in_output` is True, otherwise a weaker alignment that was not used |
+| `num_placements`     | Number of places on the ref this contig could be placed (1 for unique contigs) |
 | `spans_origin`       | Alignment wraps around the origin of the (circular) ref plasmid. If so, `alignment_end` < `alignment_start` |
 | `mapq`               | Mapping quality. 0 indicates the contig could equally well align elsewhere (e.g. a repeat such as an IS element) |
 | `contig_length`      | Length of the contig                                                    |
@@ -149,16 +155,43 @@ reference.
 The reference is deliberately not doubled: a doubled reference makes every
 alignment ambiguous (mapping quality 0), hiding genuinely repetitive contigs.
 
+## Repeats
+
+Short-read assemblies typically collapse repeats (e.g. IS26, Tn4401) into a single
+contig, which aligns equally well to each copy on the ref. minimap2 picks one copy for
+the primary alignment, and the others are reported as secondary alignments.
+
+A secondary alignment is treated as an *alternative placement* of the contig if its
+alignment score is at least 95% of the primary's. A unique contig that merely contains
+part of a repeat has a much weaker secondary alignment, so isn't treated as
+ambiguous. Alternative placements are used to:
+
+- type each gap as `repeat` (an alternative placement covers it) or `unique`
+  (nothing covers it). A gap partly covered by an alternative placement is split
+  into a repeat part and a unique part. Unique gaps are the ones that indicate
+  sequence genuinely missing from the reconstruction.
+- fill repeat gaps in `scaffold.fa` (see below).
+
+Alternative placements don't count towards `ref_bases_covered` or
+`contig_bases_aligned`.
+
 ## Scaffold sequence
 
 `scaffold.fa` starts at the reference origin and is built by placing each
 aligned contig segment in order of its start position on the reference. Alignments
 that span the origin are split there, with the part past the origin placed at the
-start of the output. Reference regions not covered by any contig are
-filled with `N` (one per uncovered reference base). Where two alignments overlap on
+start of the output. Reference regions not covered by any contig's placement are
+filled from alternative placements where possible (i.e. repeat gaps), in
+**lowercase** to mark them as inferred, and otherwise with `N` (one per uncovered
+reference base). Where two alignments overlap on
 the reference (e.g. the k-mer overlap between adjacent assembly contigs), the
 overlapping part of the later one is trimmed. Alignments entirely contained within
 an already-covered region are excluded (`included_in_output = False`).
+
+Lowercase follows the common soft-masking convention. Note that some tools treat
+lowercase as masked (e.g. BLAST with `-lcase_masking`) and others silently
+uppercase input, so inferred regions may be ignored or indistinguishable
+downstream.
 
 ## Development
 

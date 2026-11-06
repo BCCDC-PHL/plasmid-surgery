@@ -32,6 +32,8 @@ SUMMARY_OUTPUT_FIELDNAMES = [
     'reverse_complement',
     'is_mapped',
     'is_supplementary',
+    'is_secondary',
+    'num_placements',
     'spans_origin',
     'mapq',
     'contig_length',
@@ -104,6 +106,8 @@ def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fract
         'reverse_complement': aligned_contig.get('is_reverse', None),
         'is_mapped': is_mapped,
         'is_supplementary': aligned_contig.get('is_supplementary', None),
+        'is_secondary': aligned_contig.get('is_secondary', None),
+        'num_placements': aligned_contig.get('num_placements', None),
         'spans_origin': aligned_contig.get('spans_origin', False),
         'mapq': aligned_contig.get('mapq', None),
         'contig_length': aligned_contig.get('query_full_length', None),
@@ -118,7 +122,7 @@ def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fract
         # Alignment wraps around the origin: alignment_end < alignment_start
         row['alignment_end'] -= ref_length
     if not is_mapped:
-        for field in ['reverse_complement', 'is_supplementary', 'spans_origin', 'mapq', 'alignment_start', 'alignment_end', 'alignment_length', 'percent_identity']:
+        for field in ['reverse_complement', 'is_supplementary', 'is_secondary', 'num_placements', 'spans_origin', 'mapq', 'alignment_start', 'alignment_end', 'alignment_length', 'percent_identity']:
             row[field] = 'NA'
 
     return row
@@ -176,6 +180,7 @@ def run(args, outputs: dict, tmpdir) -> int:
         sample_id = plasmid_reconstruction_basename.split('.')[0]
 
     aligned_contigs = []
+    alternative_placements = []
     failed_alignments = []
     for contig in plasmid_reconstruction_contigs:
         contig_id = contig['seq_id']
@@ -192,6 +197,7 @@ def run(args, outputs: dict, tmpdir) -> int:
         if any(s['is_supplementary'] for s in aligned_segments):
             logger.info(f"Supplementary alignment found for contig: {contig_id}")
 
+        passed = []
         for aligned_segment in aligned_segments:
             aligned_segment_qc_stats = alignment.alignment_qc(aligned_segment)
             if not aligned_segment_qc_stats['overall_qc_pass']:
@@ -200,10 +206,18 @@ def run(args, outputs: dict, tmpdir) -> int:
                 aligned_segment['included_in_output'] = False
                 failed_alignments.append(aligned_segment)
                 continue
+            passed.append(aligned_segment)
 
-            aligned_contigs.append(aligned_segment)
+        placement, alternatives, rejected = alignment.select_alternative_placements(passed)
+        if alternatives:
+            logger.info(f"Contig {contig_id} has {len(alternatives)} alternative placement(s) on the ref (e.g. a repeat)")
+        for aln in rejected:
+            aln['included_in_output'] = False
+        aligned_contigs += placement
+        alternative_placements += alternatives
+        failed_alignments += rejected
 
-    output_seq = alignment.build_output_sequence(aligned_contigs, ref_plasmid_length)
+    output_seq = alignment.build_output_sequence(aligned_contigs, ref_plasmid_length, alternative_placements)
 
     assessment_result = assessment.assess(
         plasmid_reconstruction_contigs,
@@ -211,6 +225,7 @@ def run(args, outputs: dict, tmpdir) -> int:
         ref_plasmid_length,
         min_indel_length=args.min_indel_length,
         min_unaligned_length=args.min_unaligned_length,
+        alternative_placements=alternative_placements,
     )
     metrics = {'sample_id': sample_id, 'ref_id': ref_plasmid_id, **assessment_result['metrics']}
     logger.info("Assessment: " + json.dumps(metrics))
@@ -220,7 +235,7 @@ def run(args, outputs: dict, tmpdir) -> int:
     assessment.write_unaligned_fasta(outputs['unaligned'], assessment_result['unaligned_regions'], args.output_bases_per_line)
 
     contig_fraction_aligned = assessment_result['contig_fraction_aligned']
-    summary_output = [summary_row(a, ref_plasmid_id, ref_plasmid_length, contig_fraction_aligned) for a in aligned_contigs + failed_alignments]
+    summary_output = [summary_row(a, ref_plasmid_id, ref_plasmid_length, contig_fraction_aligned) for a in aligned_contigs + alternative_placements + failed_alignments]
     summary_output_sorted = sorted(summary_output, key=summary_sort_key)
     with open(outputs['summary'], 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=SUMMARY_OUTPUT_FIELDNAMES, delimiter='\t', extrasaction='ignore', quoting=csv.QUOTE_MINIMAL)

@@ -30,9 +30,15 @@ METRICS_FIELDNAMES = [
     'ref_bases_covered',
     'ref_fraction_covered',
     'ref_bases_covered_multiple',
+    'ref_fraction_covered_including_repeats',
     'num_gaps',
     'total_gap_length',
     'largest_gap_length',
+    'num_repeat_gaps',
+    'repeat_gap_length',
+    'num_unique_gaps',
+    'unique_gap_length',
+    'largest_unique_gap_length',
     'contig_bases_aligned',
     'contig_fraction_aligned',
     'num_unaligned_contigs',
@@ -41,6 +47,7 @@ METRICS_FIELDNAMES = [
     'num_large_insertions',
     'num_large_deletions',
     'num_ambiguous_alignments',
+    'num_ambiguous_contigs',
 ]
 
 EVENTS_FIELDNAMES = [
@@ -94,23 +101,42 @@ def coverage_segments(alignments: list[dict], ref_length: int) -> list[tuple[int
     return segments
 
 
-def find_gaps(segments: list[tuple[int, int, int]], ref_length: int) -> list[tuple[int, int]]:
+def find_typed_gaps(alignments: list[dict], alternative_placements: list[dict], ref_length: int) -> list[dict]:
     """
-    Find uncovered regions of the reference.
+    Find uncovered regions of the reference, typed by whether an alternative
+    placement of some contig covers them.
 
-    A gap spanning the origin is reported once, as (start, end) with
-    end > ref_length.
+    'repeat' gaps are covered by an alternative placement (e.g. another copy of
+    a collapsed repeat): the sequence is likely present in the reconstruction,
+    just not placed there. 'unique' gaps are not covered by anything: the
+    sequence is likely genuinely missing from the reconstruction. A gap that is
+    partly covered is split into repeat and unique parts.
 
-    :param segments: Output of coverage_segments
-    :return: List of (start, end) gaps, ordered by start
+    :return: List of dicts with keys 'start', 'end' (> ref_length if the gap
+             spans the origin) and 'type', ordered by start
     """
-    gaps = [(start, end) for start, end, depth in segments if depth == 0]
-    if len(gaps) >= 2 and gaps[0][0] == 0 and gaps[-1][1] == ref_length:
-        first = gaps.pop(0)
-        last = gaps.pop()
-        gaps.append((last[0], ref_length + first[1]))
+    alternative_segments = coverage_segments(alternative_placements, ref_length)
+    typed = []
+    for gap_start, gap_end, depth in coverage_segments(alignments, ref_length):
+        if depth != 0:
+            continue
+        for seg_start, seg_end, alt_depth in alternative_segments:
+            start = max(gap_start, seg_start)
+            end = min(gap_end, seg_end)
+            if end <= start:
+                continue
+            gap_type = 'repeat' if alt_depth > 0 else 'unique'
+            if typed and typed[-1]['type'] == gap_type and typed[-1]['end'] == start:
+                typed[-1]['end'] = end
+            else:
+                typed.append({'start': start, 'end': end, 'type': gap_type})
 
-    return gaps
+    if (len(typed) >= 2 and typed[0]['start'] == 0 and typed[-1]['end'] == ref_length
+            and typed[0]['type'] == typed[-1]['type']):
+        first = typed.pop(0)
+        typed[-1]['end'] = ref_length + first['end']
+
+    return typed
 
 
 def leading_clip_length(aln: dict) -> int:
@@ -220,18 +246,22 @@ def indel_events(aln: dict, ref_length: int, min_length: int) -> list[dict]:
 
 
 def assess(contigs: list[dict], alignments: list[dict], ref_length: int,
-           min_indel_length: int = 50, min_unaligned_length: int = 100) -> dict:
+           min_indel_length: int = 50, min_unaligned_length: int = 100,
+           alternative_placements: list[dict] = ()) -> dict:
     """
     Assess a plasmid reconstruction against a reference.
 
     :param contigs: All contigs in the reconstruction, as parsed by parsers.parse_fasta
-    :param alignments: Alignments that passed QC (mapped only)
+    :param alignments: Placement alignments (primary + supplementary) that passed QC
+    :param alternative_placements: Secondary alignments that are alternative
+                                   placements of a contig (see
+                                   alignment.select_alternative_placements)
     :param ref_length: Length of the reference
     :param min_indel_length: Minimum insertion/deletion length to report as an event
     :param min_unaligned_length: Minimum length of an unaligned contig region to report
     :return: dict with keys:
              'metrics': dict of summary metrics (METRICS_FIELDNAMES, minus sample/ref IDs),
-             'gaps': list of (start, end) uncovered ref regions,
+             'gaps': list of typed gap dicts (see find_typed_gaps),
              'events': list of indel event dicts,
              'unaligned_regions': list of dicts with contig_id, start, end, seq,
              'contig_fraction_aligned': dict of contig_id -> fraction
@@ -241,8 +271,11 @@ def assess(contigs: list[dict], alignments: list[dict], ref_length: int,
     segments = coverage_segments(alignments, ref_length)
     ref_bases_covered = sum(end - start for start, end, depth in segments if depth >= 1)
     ref_bases_covered_multiple = sum(end - start for start, end, depth in segments if depth >= 2)
-    gaps = find_gaps(segments, ref_length)
-    gap_lengths = [end - start for start, end in gaps]
+    alternative_placements = [a for a in alternative_placements if a.get('is_mapped')]
+    gaps = find_typed_gaps(alignments, alternative_placements, ref_length)
+    gap_lengths = [g['end'] - g['start'] for g in gaps]
+    repeat_gap_lengths = [g['end'] - g['start'] for g in gaps if g['type'] == 'repeat']
+    unique_gap_lengths = [g['end'] - g['start'] for g in gaps if g['type'] == 'unique']
 
     intervals_by_contig = defaultdict(list)
     for aln in alignments:
@@ -283,9 +316,15 @@ def assess(contigs: list[dict], alignments: list[dict], ref_length: int,
         'ref_bases_covered': ref_bases_covered,
         'ref_fraction_covered': round(ref_bases_covered / ref_length, 4) if ref_length else 0.0,
         'ref_bases_covered_multiple': ref_bases_covered_multiple,
+        'ref_fraction_covered_including_repeats': round((ref_bases_covered + sum(repeat_gap_lengths)) / ref_length, 4) if ref_length else 0.0,
         'num_gaps': len(gaps),
         'total_gap_length': sum(gap_lengths),
         'largest_gap_length': max(gap_lengths, default=0),
+        'num_repeat_gaps': len(repeat_gap_lengths),
+        'repeat_gap_length': sum(repeat_gap_lengths),
+        'num_unique_gaps': len(unique_gap_lengths),
+        'unique_gap_length': sum(unique_gap_lengths),
+        'largest_unique_gap_length': max(unique_gap_lengths, default=0),
         'contig_bases_aligned': contig_bases_aligned,
         'contig_fraction_aligned': round(contig_bases_aligned / total_contig_length, 4) if total_contig_length else 0.0,
         'num_unaligned_contigs': num_unaligned_contigs,
@@ -294,6 +333,7 @@ def assess(contigs: list[dict], alignments: list[dict], ref_length: int,
         'num_large_insertions': sum(1 for e in events if e['event_type'] == 'insertion'),
         'num_large_deletions': sum(1 for e in events if e['event_type'] == 'deletion'),
         'num_ambiguous_alignments': sum(1 for a in alignments if a.get('mapq') == 0),
+        'num_ambiguous_contigs': len({a['contig_id'] for a in alternative_placements}),
     }
 
     return {
@@ -312,16 +352,16 @@ def write_metrics(path, metrics: dict) -> None:
         writer.writerow(metrics)
 
 
-def write_gaps_bed(path, gaps: list[tuple[int, int]], ref_id: str, ref_length: int) -> None:
+def write_gaps_bed(path, gaps: list[dict], ref_id: str, ref_length: int) -> None:
     """
-    Write gaps as BED4. A gap spanning the origin is written as two records
-    with the same name.
+    Write gaps as BED4, named 'gap_<n>_<type>' (type: repeat or unique). A gap
+    spanning the origin is written as two records with the same name.
     """
     with open(path, 'w') as f:
-        for i, (start, end) in enumerate(gaps, start=1):
-            for s, e in split_circular_interval(start, end, ref_length):
+        for i, gap in enumerate(gaps, start=1):
+            for s, e in split_circular_interval(gap['start'], gap['end'], ref_length):
                 if e > s:
-                    f.write(f"{ref_id}\t{s}\t{e}\tgap_{i}\n")
+                    f.write(f"{ref_id}\t{s}\t{e}\tgap_{i}_{gap['type']}\n")
 
 
 def write_events(path, events: list[dict]) -> None:

@@ -169,3 +169,79 @@ def test_build_output_wrapping_alignment_overlaps_first_contig():
     b = make_aln('b', 1, 'TCCC')
     out = alignment.build_output_sequence([a, b], ref_length=10)
     assert out == 'TT' + 'CCC' + 'NNN' + 'GG'
+
+
+# --- repeat awareness ---
+
+def test_build_output_fills_gaps_from_alternative_placements_in_lowercase():
+    a = make_aln('a', 0, 'AAAA')
+    b = make_aln('b', 10, 'CCCC')
+    repeat_alt = make_aln('r', 4, 'GGG')          # fills 4-7; 7-10 stays N
+    out = alignment.build_output_sequence([a, b], ref_length=14, alternative_placements=[repeat_alt])
+    assert out == 'AAAA' + 'ggg' + 'NNN' + 'CCCC'
+    assert repeat_alt['included_in_output']
+
+
+def test_build_output_alternative_trimmed_to_gap():
+    a = make_aln('a', 0, 'AAAA')
+    b = make_aln('b', 8, 'CCCC')
+    repeat_alt = make_aln('r', 2, 'TTGGGGTT')      # ref 2-10, gap is 4-8
+    out = alignment.build_output_sequence([a, b], ref_length=12, alternative_placements=[repeat_alt])
+    assert out == 'AAAA' + 'gggg' + 'CCCC'
+
+
+def test_build_output_alternative_not_used_where_covered():
+    a = make_aln('a', 0, 'AAAAAAAA')
+    repeat_alt = make_aln('r', 2, 'GGGG')
+    out = alignment.build_output_sequence([a], ref_length=8, alternative_placements=[repeat_alt])
+    assert out == 'AAAAAAAA'
+    assert not repeat_alt['included_in_output']
+
+
+def test_build_output_alternative_wrapping_origin():
+    a = make_aln('a', 2, 'AAAAAA')               # ref 2-8
+    repeat_alt = make_aln('r', 8, 'GGTT')        # ref 8-12 on length-10 ref: wraps
+    out = alignment.build_output_sequence([a], ref_length=10, alternative_placements=[repeat_alt])
+    assert out == 'tt' + 'AAAAAA' + 'gg'
+
+
+def secondary(contig_id, score, **kwargs):
+    aln = make_aln(contig_id, 0, 'A' * 10, **kwargs)
+    aln.update({'is_secondary': True, 'is_supplementary': False, 'alignment_score': score})
+    return aln
+
+
+def test_select_alternative_placements():
+    primary = make_aln('r', 0, 'A' * 10)
+    primary.update({'is_secondary': False, 'is_supplementary': False, 'alignment_score': 1000})
+    supplementary = make_aln('r', 50, 'A' * 10)
+    supplementary.update({'is_secondary': False, 'is_supplementary': True, 'alignment_score': 200})
+    good = secondary('r', 990)
+    marginal = secondary('r', 950)
+    poor = secondary('r', 600)   # e.g. a unique contig that just contains part of a repeat
+    placement, alternatives, rejected = alignment.select_alternative_placements(
+        [primary, supplementary, good, marginal, poor], min_score_ratio=0.95)
+    assert placement == [primary, supplementary]
+    assert alternatives == [good, marginal]
+    assert rejected == [poor]
+    assert all(a['num_placements'] == 3 for a in placement + alternatives + rejected)
+
+
+def test_select_alternative_placements_no_secondaries():
+    primary = make_aln('a', 0, 'A' * 10)
+    primary.update({'is_secondary': False, 'is_supplementary': False, 'alignment_score': 10})
+    placement, alternatives, rejected = alignment.select_alternative_placements([primary])
+    assert (placement, alternatives, rejected) == ([primary], [], [])
+    assert primary['num_placements'] == 1
+
+
+@pytest.mark.parametrize("cigar,is_reverse,expected", [
+    ('2S5=1S', False, 'TACCT'),
+    ('3H5=', False, 'ACCTT'),
+    # reverse: slice of revcomp(contig) = 'AAGGTACG'
+    ('2S5=1S', True, 'GGTAC'),
+])
+def test_aligned_query_sequence(cigar, is_reverse, expected):
+    contig_seq = 'CGTACCTT'
+    aln = {'cigar_parsed': parse_cigar(cigar), 'is_reverse': is_reverse}
+    assert alignment.aligned_query_sequence(aln, contig_seq) == expected

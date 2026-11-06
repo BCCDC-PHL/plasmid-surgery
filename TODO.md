@@ -94,15 +94,18 @@ optional by-product.
   - [ ] Large insertions within alignments count as "aligned" contig bases;
     consider also writing their sequence to the unaligned FASTA (or a separate
     insertions FASTA) so novel sequence is all in one place.
-  - [ ] Distinguish gaps at repeat copies (likely just collapsed repeats) from
-    gaps in unique sequence (likely genuinely missing), once repeat awareness
-    and/or ref annotation are in.
+  - [x] Distinguish gaps at repeat copies (likely just collapsed repeats) from
+    gaps in unique sequence (likely genuinely missing).
 - [ ] **Structural consistency.** Walk placements around the circle and flag order
   breaks, strand flips and split alignments mapping to distant loci.
-- [ ] **Repeat awareness.** Use MAPQ and multiple alignments (`-N 5` instead of
-  `--secondary=no`) to flag contigs that place ambiguously. IS26 / Tn4401 etc. are
-  ubiquitous in carbapenemase plasmids and will cause this constantly.
-  Currently a MAPQ 0 repeat contig is placed at an arbitrary copy.
+- [x] **Repeat awareness.** Secondary alignments (`-N 10 -p 0.9`) with score >= 95%
+  of the primary are alternative placements. Gaps are typed `repeat`/`unique`, with
+  separate metrics, and repeat gaps are filled in the scaffold in lowercase.
+  - [ ] Use contig read depth (SPAdes/Unicycler headers, if they survive mob_recon)
+    to estimate repeat copy number and check it against `num_placements`.
+  - [ ] The primary copy of a repeat is still minimap2's arbitrary choice; it's
+    uppercase in the scaffold while the other copies are lowercase. Consider
+    lowercasing all copies of an ambiguous contig.
 - [ ] If the ref is annotated (GenBank), intersect gaps with IS/transposon
   features: this likely explains most short-read gaps.
 - [ ] Overlap resolution is currently "first by ref_start wins". Consider

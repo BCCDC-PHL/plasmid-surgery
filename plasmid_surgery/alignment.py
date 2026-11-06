@@ -11,8 +11,39 @@ import plasmid_surgery.parsers as parsers
 logger = logging.getLogger(__name__)
 
 
+MAX_SECONDARY_ALIGNMENTS = 10
+# minimap2's own filter on secondary alignments (score relative to primary).
+# Secondaries are filtered more strictly in select_alternative_placements.
+MIN_SECONDARY_SCORE_RATIO_MINIMAP2 = 0.9
+
+COMPLEMENT = str.maketrans('ACGTNacgtn', 'TGCANtgcan')
+
+
 class AlignmentError(Exception):
     pass
+
+
+def revcomp(seq: str) -> str:
+    return seq[::-1].translate(COMPLEMENT)
+
+
+CLIP_OPS = ('soft_clip', 'hard_clip')
+QUERY_ALIGNED_OPS = ('alignment_match', 'sequence_match', 'sequence_mismatch', 'insertion_to_ref')
+
+
+def aligned_query_sequence(aln: dict, contig_seq: str) -> str:
+    """
+    The aligned part of the contig, in alignment orientation, derived from the
+    CIGAR. Used for alignments whose SAM record has no SEQ (secondaries).
+    """
+    oriented = revcomp(contig_seq) if aln.get('is_reverse') else contig_seq
+    start = 0
+    for op, length in aln['cigar_parsed']:
+        if op not in CLIP_OPS:
+            break
+        start += length
+    aligned = sum(length for op, length in aln['cigar_parsed'] if op in QUERY_ALIGNED_OPS)
+    return oriented[start:start + aligned]
 
 
 def align_contig_vs_ref(contig: dict, ref: dict, tmpdir: Path) -> list[dict]:
@@ -53,7 +84,10 @@ def align_contig_vs_ref(contig: dict, ref: dict, tmpdir: Path) -> list[dict]:
         '-a',
         '-cx',
         'asm10',
-        '--secondary=no',
+        # Report secondary alignments, so that contigs which could be placed at
+        # more than one location (e.g. collapsed repeats) can be identified.
+        '-N', str(MAX_SECONDARY_ALIGNMENTS),
+        '-p', str(MIN_SECONDARY_SCORE_RATIO_MINIMAP2),
         '--eqx',
         '-o', alignment_path,
         ref_path,
@@ -73,6 +107,10 @@ def align_contig_vs_ref(contig: dict, ref: dict, tmpdir: Path) -> list[dict]:
     for aligned_segment in aligned_segments:
         aligned_segment['query_full_length'] = len(contig['seq'])
         aligned_segment['ref_full_length'] = len(ref['seq'])
+        if aligned_segment.get('is_mapped') and aligned_segment['query_alignment_sequence'] is None:
+            # minimap2 omits SEQ for secondary alignments; recover it from the contig
+            aligned_segment['query_alignment_sequence'] = aligned_query_sequence(aligned_segment, contig['seq'])
+            aligned_segment['query_alignment_length'] = len(aligned_segment['query_alignment_sequence'])
 
     return aligned_segments
 
@@ -146,8 +184,9 @@ def align_contig_vs_circular_ref(contig: dict, ref: dict, tmpdir: Path) -> list[
         unrotate_alignment(aln, shift, ref_length, ref['seq_id'])
 
     def score(segments):
-        mapped = [a for a in segments if a.get('is_mapped')]
-        return (total_aligned_query_bases(segments), -len(mapped))
+        # Primary + supplementary only: secondaries are alternative placements
+        mapped = [a for a in segments if a.get('is_mapped') and not a.get('is_secondary')]
+        return (total_aligned_query_bases(mapped), -len(mapped))
 
     use_rotated = score(rotated) > score(original)
     chosen = rotated if use_rotated else original
@@ -159,6 +198,43 @@ def align_contig_vs_circular_ref(contig: dict, ref: dict, tmpdir: Path) -> list[
         aln['spans_origin'] = bool(aln.get('is_mapped')) and aln['ref_end'] > ref_length
 
     return chosen
+
+
+def select_alternative_placements(aligned_segments: list[dict], min_score_ratio: float = 0.95) -> tuple[list[dict], list[dict], list[dict]]:
+    """
+    Separate one contig's alignments into its placement (primary + supplementary)
+    and alternative placements (secondary alignments that are nearly as good as
+    the primary, e.g. other copies of a repeat).
+
+    A secondary alignment counts as an alternative placement only if its
+    alignment score is at least min_score_ratio of the primary's, so that a
+    unique contig which merely contains part of a repeat isn't treated as
+    ambiguous.
+
+    Sets aln['num_placements'] (1 + number of alternative placements) on all
+    returned alignments.
+
+    :param aligned_segments: All mapped alignments of a single contig
+    :param min_score_ratio: Minimum secondary/primary alignment score ratio
+    :return: (placement, alternatives, rejected) lists of alignments
+    """
+    placement = [a for a in aligned_segments if not a.get('is_secondary')]
+    secondaries = [a for a in aligned_segments if a.get('is_secondary')]
+    primary_scores = [a.get('alignment_score') for a in placement
+                      if not a.get('is_supplementary') and a.get('alignment_score') is not None]
+    alternatives = []
+    rejected = []
+    for aln in secondaries:
+        score = aln.get('alignment_score')
+        if primary_scores and score is not None and score >= min_score_ratio * primary_scores[0]:
+            alternatives.append(aln)
+        else:
+            rejected.append(aln)
+
+    for aln in placement + alternatives + rejected:
+        aln['num_placements'] = 1 + len(alternatives)
+
+    return placement, alternatives, rejected
 
 
 def alignment_qc(aln, min_identity=80.0, min_aln_length=50, max_gap_frac=0.8):
@@ -300,58 +376,86 @@ def split_alignment_at_ref_pos(aln: dict, ref_pos: int) -> tuple[dict, dict]:
     return left, right
 
 
-def build_output_sequence(aligned_contigs: list[dict], ref_length: int) -> str:
+def _circular_pieces(alignments: list[dict], ref_length: int) -> list[tuple[dict, dict]]:
+    """
+    (piece, parent) pairs, with alignments wrapping the origin split there and
+    the part past the origin shifted to the start of the reference.
+    """
+    pieces = []
+    for aln in alignments:
+        if aln['ref_end'] > ref_length:
+            left, right = split_alignment_at_ref_pos(aln, ref_length)
+            right['ref_start'] -= ref_length
+            right['ref_end'] -= ref_length
+            pieces += [(left, aln), (right, aln)]
+        else:
+            pieces.append((aln, aln))
+    pieces.sort(key=lambda p: (p[0]['ref_start'], -p[0]['ref_end']))
+    return pieces
+
+
+def _fill_ref_interval(pieces, start: int, end: int, fill_gap, transform=lambda s: s) -> str:
+    """
+    Sequence for the reference interval [start, end), built from (piece, parent)
+    pairs in reference order. The first piece to reach a region wins: later
+    overlapping pieces are trimmed and contained pieces are skipped. Uncovered
+    regions are filled by fill_gap(gap_start, gap_end).
+    """
+    out = []
+    covered_end = start
+    for piece, parent in pieces:
+        piece_start = max(piece['ref_start'], covered_end)
+        piece_end = min(piece['ref_end'], end)
+        if piece_end <= piece_start:
+            continue
+        if piece['ref_start'] < covered_end:
+            logger.debug(f"Alignment of {piece['contig_id']} ({piece['ref_start']}-{piece['ref_end']}) overlaps previous alignment by {covered_end - piece['ref_start']} bp; trimming")
+        if piece_start > covered_end:
+            out.append(fill_gap(covered_end, piece_start))
+        seq = piece['query_alignment_sequence']
+        out.append(transform(seq[query_offset_at_ref_pos(piece, piece_start):query_offset_at_ref_pos(piece, piece_end)]))
+        parent['included_in_output'] = True
+        covered_end = piece_end
+    if covered_end < end:
+        out.append(fill_gap(covered_end, end))
+
+    return ''.join(out)
+
+
+def build_output_sequence(aligned_contigs: list[dict], ref_length: int, alternative_placements: list[dict] = ()) -> str:
     """
     Build a reference-ordered output sequence from a set of alignments.
 
     The output starts at reference position 0. Alignments are placed in order
     of reference start position. Alignments wrapping around the origin
     (ref_end > ref_length) are split at the origin, with the part beyond the
-    origin placed at the start of the output. Reference regions not covered by
-    any alignment are filled with 'N' (one N per uncovered reference base).
-    Where an alignment overlaps the region already covered by a previous one,
-    its overlapping prefix is trimmed (using the CIGAR to find the matching
-    query position). Alignments entirely contained in the already-covered
-    region are skipped.
+    origin placed at the start of the output. Where an alignment overlaps the
+    region already covered by a previous one, its overlapping prefix is trimmed
+    (using the CIGAR to find the matching query position). Alignments entirely
+    contained in the already-covered region are skipped.
+
+    Reference regions not covered by any alignment are filled from
+    alternative placements (e.g. other copies of a collapsed repeat), in
+    lowercase to mark them as inferred, and otherwise with 'N' (one N per
+    uncovered reference base).
 
     Sets aln['included_in_output'] on every alignment.
 
-    :param aligned_contigs: Aligned segments, as parsed by parsers.parse_sam
+    :param aligned_contigs: Placement alignments (primary + supplementary)
     :param ref_length: Length of the reference
+    :param alternative_placements: Secondary alignments used to fill gaps
     :return: Output sequence
     """
-    placements = []  # (piece, parent alignment)
-    for aln in aligned_contigs:
+    for aln in list(aligned_contigs) + list(alternative_placements):
         aln['included_in_output'] = False
-        if aln['ref_end'] > ref_length:
-            left, right = split_alignment_at_ref_pos(aln, ref_length)
-            right['ref_start'] -= ref_length
-            right['ref_end'] -= ref_length
-            placements += [(left, aln), (right, aln)]
-        else:
-            placements.append((aln, aln))
 
-    placements.sort(key=lambda p: (p[0]['ref_start'], -p[0]['ref_end']))
+    primary_pieces = _circular_pieces(aligned_contigs, ref_length)
+    alternative_pieces = _circular_pieces(alternative_placements, ref_length)
 
-    pieces = []
-    covered_end = 0
-    for piece, parent in placements:
-        ref_start = piece['ref_start']
-        ref_end = piece['ref_end']
-        if ref_end <= covered_end:
-            logger.info(f"Alignment of {piece['contig_id']} ({ref_start}-{ref_end}) is contained in already-covered region; excluding from output")
-            continue
-        if ref_start < covered_end:
-            offset = query_offset_at_ref_pos(piece, covered_end)
-            logger.info(f"Alignment of {piece['contig_id']} ({ref_start}-{ref_end}) overlaps previous alignment by {covered_end - ref_start} bp; trimming")
-            seq = piece['query_alignment_sequence'][offset:]
-        else:
-            pieces.append('N' * (ref_start - covered_end))
-            seq = piece['query_alignment_sequence']
-        pieces.append(seq)
-        parent['included_in_output'] = True
-        covered_end = ref_end
+    def fill_with_ns(start, end):
+        return 'N' * (end - start)
 
-    pieces.append('N' * max(0, ref_length - covered_end))
+    def fill_from_alternatives(start, end):
+        return _fill_ref_interval(alternative_pieces, start, end, fill_with_ns, transform=str.lower)
 
-    return ''.join(pieces)
+    return _fill_ref_interval(primary_pieces, 0, ref_length, fill_from_alternatives)

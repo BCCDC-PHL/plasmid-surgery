@@ -42,29 +42,54 @@ def test_coverage_segments_wrapping_alignment():
     assert assessment.coverage_segments(alns, 50) == [(0, 5, 1), (5, 45, 0), (45, 50, 1)]
 
 
-def test_find_gaps_merges_gap_across_origin():
+def test_find_typed_gaps_merges_gap_across_origin():
     alns = [make_aln('a', 10, '20=', 20)]
-    segments = assessment.coverage_segments(alns, 50)
-    assert assessment.find_gaps(segments, 50) == [(30, 60)]
+    assert assessment.find_typed_gaps(alns, [], 50) == [{'start': 30, 'end': 60, 'type': 'unique'}]
 
 
-def test_find_gaps_no_coverage():
-    segments = assessment.coverage_segments([], 50)
-    assert assessment.find_gaps(segments, 50) == [(0, 50)]
+def test_find_typed_gaps_no_coverage():
+    assert assessment.find_typed_gaps([], [], 50) == [{'start': 0, 'end': 50, 'type': 'unique'}]
 
 
-def test_find_gaps_full_coverage():
-    segments = assessment.coverage_segments([make_aln('a', 0, '50=', 50)], 50)
-    assert assessment.find_gaps(segments, 50) == []
+def test_find_typed_gaps_full_coverage():
+    assert assessment.find_typed_gaps([make_aln('a', 0, '50=', 50)], [], 50) == []
+
+
+def test_find_typed_gaps_repeat_and_unique():
+    # Placements cover 0-20 and 60-100; an alternative placement covers 20-30,
+    # so the 20-60 gap is split into a repeat part and a unique part
+    alns = [make_aln('a', 0, '20=', 20), make_aln('b', 60, '40=', 40)]
+    alternatives = [make_aln('r', 20, '10=', 10)]
+    assert assessment.find_typed_gaps(alns, alternatives, 100) == [
+        {'start': 20, 'end': 30, 'type': 'repeat'},
+        {'start': 30, 'end': 60, 'type': 'unique'},
+    ]
+
+
+def test_find_typed_gaps_alternative_overlapping_placement_ignored():
+    # Alternative placement extending over covered sequence only counts in the gap
+    alns = [make_aln('a', 0, '40=', 40)]
+    alternatives = [make_aln('r', 30, '30=', 30)]
+    assert assessment.find_typed_gaps(alns, alternatives, 100) == [
+        {'start': 40, 'end': 60, 'type': 'repeat'},
+        {'start': 60, 'end': 100, 'type': 'unique'},
+    ]
+
+
+def test_find_typed_gaps_repeat_across_origin():
+    alns = [make_aln('a', 10, '80=', 80)]
+    alternatives = [make_aln('r', 90, '20=', 20)]   # wraps: 90-100 and 0-10
+    assert assessment.find_typed_gaps(alns, alternatives, 100) == [{'start': 90, 'end': 110, 'type': 'repeat'}]
 
 
 def test_write_gaps_bed_splits_wrapping_gap(tmp_path):
     path = tmp_path / 'gaps.bed'
-    assessment.write_gaps_bed(path, [(5, 10), (30, 60)], 'ref', 50)
+    gaps = [{'start': 5, 'end': 10, 'type': 'repeat'}, {'start': 30, 'end': 60, 'type': 'unique'}]
+    assessment.write_gaps_bed(path, gaps, 'ref', 50)
     assert path.read_text().splitlines() == [
-        'ref\t5\t10\tgap_1',
-        'ref\t30\t50\tgap_2',
-        'ref\t0\t10\tgap_2',
+        'ref\t5\t10\tgap_1_repeat',
+        'ref\t30\t50\tgap_2_unique',
+        'ref\t0\t10\tgap_2_unique',
     ]
 
 
@@ -135,7 +160,7 @@ def test_assess():
     assert m['ref_bases_covered'] == 160
     assert m['ref_fraction_covered'] == round(160 / 300, 4)
     assert m['ref_bases_covered_multiple'] == 0
-    assert result['gaps'] == [(100, 150), (210, 300)]
+    assert result['gaps'] == [{'start': 100, 'end': 150, 'type': 'unique'}, {'start': 210, 'end': 300, 'type': 'unique'}]
     assert m['num_gaps'] == 2
     assert m['total_gap_length'] == 140
     assert m['largest_gap_length'] == 90
@@ -152,3 +177,21 @@ def test_assess_ignores_unmapped():
     result = assessment.assess([contig('a', 100)], alns, ref_length=200)
     assert result['metrics']['ref_bases_covered'] == 0
     assert result['metrics']['num_unaligned_contigs'] == 1
+
+
+def test_assess_with_alternative_placements():
+    contigs = [contig('a', 100), contig('r', 50)]
+    alns = [make_aln('a', 0, '100=', 100), make_aln('r', 100, '50=', 50, mapq=0)]
+    alternatives = [make_aln('r', 200, '50=', 50, mapq=0)]
+    result = assessment.assess(contigs, alns, ref_length=300, alternative_placements=alternatives)
+    m = result['metrics']
+    assert result['gaps'] == [{'start': 150, 'end': 200, 'type': 'unique'},
+                              {'start': 200, 'end': 250, 'type': 'repeat'},
+                              {'start': 250, 'end': 300, 'type': 'unique'}]
+    assert m['ref_bases_covered'] == 150
+    assert m['ref_fraction_covered_including_repeats'] == round(200 / 300, 4)
+    assert (m['num_repeat_gaps'], m['repeat_gap_length']) == (1, 50)
+    assert (m['num_unique_gaps'], m['unique_gap_length'], m['largest_unique_gap_length']) == (2, 100, 50)
+    assert m['num_ambiguous_contigs'] == 1
+    # Alternative placements don't change how much of each contig is accounted for
+    assert m['contig_bases_aligned'] == 150
