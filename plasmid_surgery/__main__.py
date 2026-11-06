@@ -137,6 +137,24 @@ def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fract
     return row
 
 
+def deduplicate_contigs(contigs: list[dict]) -> list[dict]:
+    """
+    Drop contigs whose sequence (in either orientation) repeats an earlier one.
+    Some tools write a contig once per alignment hit (e.g. TaDReP, for a contig
+    split across the reference origin), which would otherwise be counted twice.
+    """
+    seen = set()
+    unique = []
+    for contig in contigs:
+        key = context.sequence_key(contig['seq'])
+        if key in seen:
+            logger.warning(f"Reconstruction contig {contig['seq_id']} duplicates the sequence of an earlier contig; ignoring it")
+            continue
+        seen.add(key)
+        unique.append(contig)
+    return unique
+
+
 def summary_sort_key(row: dict):
     """
     Sort mapped rows by alignment start; unmapped rows last.
@@ -169,7 +187,7 @@ def run(args, outputs: dict, tmpdir) -> int:
     :return: Exit code
     """
 
-    plasmid_reconstruction_contigs = parsers.parse_fasta(args.plasmid_reconstruction)
+    plasmid_reconstruction_contigs = deduplicate_contigs(parsers.parse_fasta(args.plasmid_reconstruction))
     ref_plasmids = parsers.parse_fasta(args.ref_plasmid)
     if not ref_plasmids:
         logger.error(f"No sequences found in ref plasmid file: {args.ref_plasmid}")

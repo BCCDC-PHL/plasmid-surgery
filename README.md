@@ -211,7 +211,7 @@ lists every assembly contig that aligns to the ref in `contig_sources.tsv`:
 | `missed`             | Most of the contig aligns to the ref, at a single location: likely a plasmid contig the reconstruction tool put elsewhere |
 
 `--bins` takes any number of FASTA files, e.g. mob_recon's `plasmid_*.fasta` and
-`chromosome.fasta`, or another tool's per-plasmid outputs. Contigs are matched between the
+`chromosome.fasta`, or another tool's per-plasmid outputs (e.g. TaDReP's `*-contigs.fna`). Contigs are matched between the
 reconstruction, the assembly and the bins by sequence (in either orientation), not by name, so
 tools that rename or reorient contigs work too.
 
@@ -221,6 +221,13 @@ is close to 1, and it is at well above chromosomal depth, that is good evidence 
 plasmid contig. If it's `shared` (only part of it matches the plasmid), a chromosomal location is
 more plausible. This is evidence, not proof: depth is noisy for short contigs, and the
 conclusion is only as good as the ref.
+
+## Reconstructions from other tools
+
+Any FASTA of contigs works as `--plasmid-reconstruction`, e.g. a mob_recon `plasmid_*.fasta` or a
+TaDReP `<sample>-<plasmid>-contigs.fna` (not `-pseudo.fna`, whose contigs are joined with fixed-length
+N gaps). Contigs whose sequence (in either orientation) repeats an earlier one are ignored with a
+warning: TaDReP, for example, writes a contig once per alignment hit.
 
 ## Circular references
 

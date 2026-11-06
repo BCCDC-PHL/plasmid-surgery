@@ -398,3 +398,16 @@ def test_assessment_has_na_context_columns_without_assembly(tmp_path, sim):
 def test_bins_require_assembly(tmp_path, sim):
     with pytest.raises(SystemExit):
         main(['--plasmid-reconstruction', 'r.fa', '--ref-plasmid', 'ref.fa', '--bins', 'b.fa'])
+
+
+def test_duplicate_reconstruction_contigs_counted_once(tmp_path, sim):
+    # Some tools (e.g. TaDReP) write a contig once per hit; it should count once
+    contigs = list(sim['contigs'])
+    duplicated_id, duplicated_seq = contigs[0]
+    contigs += [(f"{duplicated_id}_copy", duplicated_seq), (f"{duplicated_id}_rc", revcomp(duplicated_seq))]
+    output, rows = run(tmp_path, sim, contigs=contigs)
+    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    assert int(m['num_contigs']) == len(sim['contigs'])
+    assert int(m['ref_bases_covered_multiple']) == 0
+    assert {r['contig_id'] for r in rows} == {c for c, _ in sim['contigs']}
+    assert output['seq'].upper() in sim['sample'] + sim['sample']

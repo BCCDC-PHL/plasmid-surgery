@@ -124,8 +124,10 @@ mob_recon binning (sequence assembled, but put in another bin or the chromosome)
 - [ ] Gene/feature input (e.g. AMRFinderPlus or abricate output, or mob_recon's
   `biomarkers.blast.txt`), to report directly which contig carries the carbapenemase and how it was
   classified.
-- [ ] TaDReP compatibility: run it on the validation isolates, confirm its output names and
-  whether contig IDs are kept (sequence matching shouldn't need them), and compare with mob_recon.
+- [x] TaDReP compatibility (0.9.2): `-contigs.fna` works as a reconstruction or bin. TaDReP renames
+  contigs (`<sample>-<contig>`), which sequence matching handles, and writes a contig once per hit
+  (now deduplicated).
+- [ ] Full mob_recon vs. TaDReP comparison against a full PLSDB/RefSeq database (cluster).
 - [ ] Optionally add `missed` contigs to the scaffold (marked), for a "best possible" reconstruction.
 - [ ] Assembly graph (GFA) input, deferred: check whether contigs on either side of a gap are
   connected by a graph path of about the right length (gap bridgeable vs. truly missing).
