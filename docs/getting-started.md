@@ -58,7 +58,8 @@ concatenated into one table. The most useful at first:
 [Outputs](reference/outputs.md) describes every file and field.
 
 Add `--report` for `report.html`: every reference's results on linear maps, in one page (see
-[The HTML report](guides/report.md)).
+[The HTML reports](guides/report.md)). To compare many samples against one reference, run
+`plasmid-surgery-cohort` on their output directories.
 
 ## Several references, or a plasmid database
 

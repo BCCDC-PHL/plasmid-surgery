@@ -30,6 +30,7 @@ Homepage = "https://github.com/BCCDC-PHL/plasmid-surgery"
 plasmid-surgery = "plasmid_surgery.__main__:main"
 plasmid-surgery-refs = "plasmid_surgery.refs:main"
 plasmid-surgery-plot = "plasmid_surgery.report:main"
+plasmid-surgery-cohort = "plasmid_surgery.cohort:main"
 
 [tool.setuptools.packages.find]
 include = ["plasmid_surgery*"]

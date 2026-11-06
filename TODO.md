@@ -179,8 +179,11 @@ mob_recon binning (sequence assembled, but put in another bin or the chromosome)
 - [x] Per-run HTML report (`--report`, `plasmid-surgery-plot`): all references on linear maps with a
   shared scale, consistent contig colours, cross-panel highlighting, a contig x reference matrix;
   map.svg per reference for slides. Self-contained, no dependencies.
-- [ ] Cohort view: many samples against one reference (coverage strips per sample; gene presence
-  matrix from ref_features.tsv).
+- [x] Cohort view (`plasmid-surgery-cohort`): many samples against one reference: summary table,
+  coverage strips (covered / repeat / binning loss / shared-only / absent), reference gene matrix,
+  genes not on the reference; rows sorted together.
+- [ ] Cohort view across several references at once (e.g. one section per reference).
+- [ ] Cluster samples in the cohort view by their coverage/gene profiles, rather than sorting.
 - [ ] PNG export of maps (for tools that can't take SVG).
 
 ## Documentation
