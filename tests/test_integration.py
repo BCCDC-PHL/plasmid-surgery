@@ -3,6 +3,7 @@ End-to-end tests on simulated data. Require minimap2 on PATH.
 """
 import csv
 import random
+import re
 import shutil
 
 import pytest
@@ -58,14 +59,23 @@ def test_every_unique_contig_recovered_intact(tmp_path, sim):
         assert contained_circularly(segment, output['seq']), f"{contig_id} not intact in output"
 
 
-def test_output_length_and_gaps(tmp_path, sim):
-    output, rows = run(tmp_path, sim)
+def test_scaffold_reconstructs_sample_exactly(tmp_path, sim):
+    # The two uncovered repeat copies are filled (in lowercase) from the repeat
+    # contig's alternative placements, so the scaffold is the complete sample
+    # plasmid, rotated to the ref origin.
+    output, _ = run(tmp_path, sim)
     seq = output['seq']
-    # Two of the three repeat copies are uncovered (the repeat contig is placed at only one)
-    assert seq.count('N') == 2 * len(sim['repeat'])
-    # Without overlaps, output = all contigs + N-gaps
-    total_contig_length = sum(len(s) for _, s in sim['contigs'])
-    assert len(seq) == total_contig_length + seq.count('N')
+    assert seq.count('N') == 0
+    assert sum(c.islower() for c in seq) == 2 * len(sim['repeat'])
+    assert len(seq) == len(sim['sample'])
+    assert seq.upper() in sim['sample'] + sim['sample']
+
+
+def test_inferred_lowercase_regions_are_repeat_copies(tmp_path, sim):
+    output, _ = run(tmp_path, sim)
+    runs = [m.group() for m in re.finditer('[acgtn]+', output['seq'])]
+    assert len(runs) == 2
+    assert all(r.upper() == sim['repeat'] for r in runs)
 
 
 def test_summary(tmp_path, sim):
@@ -108,12 +118,15 @@ def test_overlapping_contigs_not_duplicated(tmp_path):
     for contig_id, segment in sim['truth_segments'][:-1]:
         # Each contig minus its trailing overlap should be present
         assert contained_circularly(segment[:-127], output['seq']), f"{contig_id} not intact in output"
-    # No overlap sequence is duplicated and nothing is lost. Two repeat copies
-    # are uncovered, except that the contigs preceding them each extend 127 bp
-    # into them.
+    # No overlap sequence is duplicated and nothing is lost: with the repeat
+    # copies filled from alternative placements, the scaffold is exactly the sample.
     seq = output['seq']
-    assert seq.count('N') == 2 * len(sim['repeat']) - 2 * 127
+    assert seq.count('N') == 0
+    assert seq.upper() in sim['sample'] + sim['sample']
     assert len(seq) == len(sim['sample'])
+    # The contigs preceding two of the repeat copies extend 127 bp into them,
+    # so less than the full two copies is inferred
+    assert sum(c.islower() for c in seq) == 2 * len(sim['repeat']) - 2 * 127
 
 
 def test_origin_spanning_contig_with_split_gap(tmp_path):
@@ -246,3 +259,36 @@ def test_unaligned_sequence_reported(tmp_path, sim):
     fractions = {r['contig_id']: float(r['contig_fraction_aligned']) for r in rows}
     assert fractions['contaminant'] == 0.0
     assert fractions[tail_contig_id] == pytest.approx(len(tail_contig_seq) / (len(tail_contig_seq) + 2000), abs=1e-3)
+
+
+# --- repeat awareness ---
+
+def test_repeat_gaps_typed(tmp_path, sim):
+    _, rows = run(tmp_path, sim)
+    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    assert int(m['num_repeat_gaps']) == 2
+    assert int(m['repeat_gap_length']) == 2 * len(sim['repeat'])
+    assert int(m['num_unique_gaps']) == 0
+    assert m['ref_fraction_covered_including_repeats'] == '1.0'
+    assert int(m['num_ambiguous_contigs']) == 1
+    names = [line.split('\t')[3] for line in (tmp_path / "out" / "gaps.bed").read_text().splitlines()]
+    assert names == ['gap_1_repeat', 'gap_2_repeat']
+    repeat_id = sim['truth_segments'][-1][0]
+    repeat_rows = [r for r in rows if r['contig_id'] == repeat_id]
+    assert len(repeat_rows) == 3
+    assert sorted(r['is_secondary'] for r in repeat_rows) == ['False', 'True', 'True']
+    assert all(r['num_placements'] == '3' for r in repeat_rows)
+    # Unique contigs are not ambiguous, even though they flank repeat copies
+    assert all(r['num_placements'] == '1' for r in rows if r['contig_id'] != repeat_id)
+
+
+def test_missing_contig_is_unique_gap(tmp_path, sim):
+    # Drop a unique 9 kb contig: its region becomes a unique gap, left as N
+    dropped_id, dropped_seq = sim['contigs'][2]
+    contigs = [c for c in sim['contigs'] if c[0] != dropped_id]
+    output, _ = run(tmp_path, sim, contigs=contigs)
+    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    assert int(m['num_unique_gaps']) == 1
+    assert int(m['unique_gap_length']) == len(dropped_seq)
+    assert int(m['num_repeat_gaps']) == 2
+    assert output['seq'].count('N') == len(dropped_seq)

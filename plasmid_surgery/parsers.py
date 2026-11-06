@@ -129,6 +129,7 @@ def parse_sam(sam_path) -> list[dict]:
         query_alignment_sequence = r.query_alignment_sequence
         is_reverse = r.is_reverse
         is_supplementary = r.is_supplementary
+        is_secondary = r.is_secondary
         is_mapped = r.is_mapped
         cigar_str = r.cigarstring
         cigar_parsed = []
@@ -151,6 +152,8 @@ def parse_sam(sam_path) -> list[dict]:
             'query_alignment_sequence': query_alignment_sequence,
             'is_reverse': is_reverse,
             'is_supplementary': is_supplementary,
+            'is_secondary': is_secondary,
+            'alignment_score': tags.get('AS', None),
             'is_mapped': is_mapped,
             'mapq': r.mapping_quality,
             'cigar_str': cigar_str,
