@@ -121,9 +121,11 @@ mob_recon binning (sequence assembled, but put in another bin or the chromosome)
   (`in_reconstruction` / `missed` / `shared` / `repeat`), with bin labels and relative read depth;
   `contig_sources.tsv`, `missed_contigs.fa`, and assembly-level metrics separating binning losses
   (`missed_ref_bases`) from assembly losses (`assembly_unique_gap_length`).
-- [ ] Gene/feature input (e.g. AMRFinderPlus or abricate output, or mob_recon's
-  `biomarkers.blast.txt`), to report directly which contig carries the carbapenemase and how it was
-  classified.
+- [x] Feature input for the ref (`--ref-features`: per-feature completeness in the reconstruction
+  and assembly) and the sample (`--features`: contig classification, bin, whether the feature is on
+  the ref), from hAMRonization TSV, GFF3 or BED, with no gene class treated specially.
+  - [ ] GenBank input for refs (NCBI's usual download), if GFF3 isn't convenient.
+  - [ ] Use ref IS/transposon features to annotate gaps directly (gaps.bed / a notes column).
 - [x] TaDReP compatibility (0.9.2): `-contigs.fna` works as a reconstruction or bin. TaDReP renames
   contigs (`<sample>-<contig>`), which sequence matching handles, and writes a contig once per hit
   (now deduplicated).

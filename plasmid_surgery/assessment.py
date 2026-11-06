@@ -60,6 +60,47 @@ EVENTS_FIELDNAMES = [
 ]
 
 
+DEFAULT_MIN_UNCOVERED_DELETION = 50
+
+
+def ref_intervals(aln: dict, min_deletion_length: int = DEFAULT_MIN_UNCOVERED_DELETION) -> list[tuple[int, int]]:
+    """
+    Ref intervals an alignment covers: its ref span, minus deletions (relative
+    to the ref) of at least min_deletion_length, which are ref sequence the
+    contig doesn't have. Shorter deletions don't split the span. Intervals may
+    extend past the ref length for alignments wrapping the origin.
+    """
+    if 'cigar_parsed' not in aln:
+        return [(aln['ref_start'], aln['ref_end'])]
+    intervals = []
+    r = aln['ref_start']
+    interval_start = r
+    for op, length in aln['cigar_parsed']:
+        if op in REF_ALIGNED_OPS:
+            r += length
+        elif op in REF_ONLY_OPS:
+            if length >= min_deletion_length:
+                if r > interval_start:
+                    intervals.append((interval_start, r))
+                interval_start = r + length
+            r += length
+    if r > interval_start:
+        intervals.append((interval_start, r))
+    return intervals
+
+
+def covered_ref_intervals(aln: dict, ref_length: int, min_deletion_length: int = DEFAULT_MIN_UNCOVERED_DELETION) -> list[tuple[int, int]]:
+    """
+    ref_intervals, split at the origin into intervals within [0, ref_length].
+    """
+    pieces = []
+    for start, end in ref_intervals(aln, min_deletion_length):
+        if start >= ref_length:   # after a deletion, past the origin of a wrapping alignment
+            start, end = start - ref_length, end - ref_length
+        pieces += [p for p in split_circular_interval(start, end, ref_length) if p[1] > p[0]]
+    return pieces
+
+
 def split_circular_interval(start: int, end: int, ref_length: int) -> list[tuple[int, int]]:
     """
     Split an interval that may wrap the origin (end > ref_length) into
@@ -70,9 +111,11 @@ def split_circular_interval(start: int, end: int, ref_length: int) -> list[tuple
     return [(start, ref_length), (0, end - ref_length)]
 
 
-def coverage_segments(alignments: list[dict], ref_length: int) -> list[tuple[int, int, int]]:
+def coverage_segments(alignments: list[dict], ref_length: int,
+                      min_deletion_length: int = DEFAULT_MIN_UNCOVERED_DELETION) -> list[tuple[int, int, int]]:
     """
-    Compute reference coverage depth.
+    Compute reference coverage depth. Deletions of at least min_deletion_length
+    within an alignment are not covered (see ref_intervals).
 
     :return: Contiguous (start, end, depth) segments tiling [0, ref_length),
              with adjacent segments of equal depth merged.
@@ -81,10 +124,9 @@ def coverage_segments(alignments: list[dict], ref_length: int) -> list[tuple[int
     deltas[0] += 0
     deltas[ref_length] += 0
     for aln in alignments:
-        for start, end in split_circular_interval(aln['ref_start'], aln['ref_end'], ref_length):
-            if end > start:
-                deltas[start] += 1
-                deltas[end] -= 1
+        for start, end in covered_ref_intervals(aln, ref_length, min_deletion_length):
+            deltas[start] += 1
+            deltas[end] -= 1
 
     positions = sorted(deltas)
     segments = []
@@ -101,7 +143,8 @@ def coverage_segments(alignments: list[dict], ref_length: int) -> list[tuple[int
     return segments
 
 
-def find_typed_gaps(alignments: list[dict], alternative_placements: list[dict], ref_length: int) -> list[dict]:
+def find_typed_gaps(alignments: list[dict], alternative_placements: list[dict], ref_length: int,
+                    min_deletion_length: int = DEFAULT_MIN_UNCOVERED_DELETION) -> list[dict]:
     """
     Find uncovered regions of the reference, typed by whether an alternative
     placement of some contig covers them.
@@ -115,9 +158,9 @@ def find_typed_gaps(alignments: list[dict], alternative_placements: list[dict], 
     :return: List of dicts with keys 'start', 'end' (> ref_length if the gap
              spans the origin) and 'type', ordered by start
     """
-    alternative_segments = coverage_segments(alternative_placements, ref_length)
+    alternative_segments = coverage_segments(alternative_placements, ref_length, min_deletion_length)
     typed = []
-    for gap_start, gap_end, depth in coverage_segments(alignments, ref_length):
+    for gap_start, gap_end, depth in coverage_segments(alignments, ref_length, min_deletion_length):
         if depth != 0:
             continue
         for seg_start, seg_end, alt_depth in alternative_segments:
@@ -268,11 +311,11 @@ def assess(contigs: list[dict], alignments: list[dict], ref_length: int,
     """
     alignments = [a for a in alignments if a.get('is_mapped')]
 
-    segments = coverage_segments(alignments, ref_length)
+    segments = coverage_segments(alignments, ref_length, min_indel_length)
     ref_bases_covered = sum(end - start for start, end, depth in segments if depth >= 1)
     ref_bases_covered_multiple = sum(end - start for start, end, depth in segments if depth >= 2)
     alternative_placements = [a for a in alternative_placements if a.get('is_mapped')]
-    gaps = find_typed_gaps(alignments, alternative_placements, ref_length)
+    gaps = find_typed_gaps(alignments, alternative_placements, ref_length, min_indel_length)
     gap_lengths = [g['end'] - g['start'] for g in gaps]
     repeat_gap_lengths = [g['end'] - g['start'] for g in gaps if g['type'] == 'repeat']
     unique_gap_lengths = [g['end'] - g['start'] for g in gaps if g['type'] == 'unique']

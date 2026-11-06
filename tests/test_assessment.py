@@ -195,3 +195,20 @@ def test_assess_with_alternative_placements():
     assert m['num_ambiguous_contigs'] == 1
     # Alternative placements don't change how much of each contig is accounted for
     assert m['contig_bases_aligned'] == 150
+
+
+def test_ref_intervals_exclude_large_deletions():
+    aln = make_aln('a', 100, '50=60D30=3D20=', 103)
+    assert assessment.ref_intervals(aln, min_deletion_length=50) == [(100, 150), (210, 263)]
+    assert assessment.ref_intervals(aln, min_deletion_length=100) == [(100, 263)]
+
+
+def test_covered_ref_intervals_after_deletion_past_origin():
+    # Wrapping alignment on a length-1000 ref, with a large deletion straddling the origin
+    aln = make_aln('a', 950, '40=60D50=', 90)
+    assert assessment.covered_ref_intervals(aln, 1000, min_deletion_length=50) == [(950, 990), (50, 100)]
+
+
+def test_coverage_excludes_large_deletion():
+    alns = [make_aln('a', 0, '40=60D40=', 80)]
+    assert assessment.find_typed_gaps(alns, [], 140) == [{'start': 40, 'end': 100, 'type': 'unique'}]
