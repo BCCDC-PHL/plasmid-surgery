@@ -15,6 +15,11 @@ from tests.simulate import simulate, write_fasta, revcomp, random_seq
 pytestmark = pytest.mark.skipif(shutil.which('minimap2') is None, reason="minimap2 not on PATH")
 
 
+# simulate() deletes ref[5000:7000] from the sample; ref sequence the sample lacks is uncovered
+DELETED_START, DELETED_END = 5000, 7000
+DELETED_LENGTH = DELETED_END - DELETED_START
+
+
 def read_summary(path):
     lines = path.read_text().splitlines()
     header = lines[0].split('\t')
@@ -203,10 +208,10 @@ def test_assessment_metrics(tmp_path, sim):
     repeat_length = len(sim['repeat'])
     assert m['sample_id'] == 'recon'
     assert int(m['ref_length']) == ref_length
-    # The collapsed repeat contig covers one of three repeat copies
-    assert int(m['num_gaps']) == 2
-    assert int(m['total_gap_length']) == 2 * repeat_length
-    assert int(m['ref_bases_covered']) == ref_length - 2 * repeat_length
+    # The collapsed repeat contig covers one of three repeat copies; the deleted region isn't covered
+    assert int(m['num_gaps']) == 3
+    assert int(m['total_gap_length']) == 2 * repeat_length + DELETED_LENGTH
+    assert int(m['ref_bases_covered']) == ref_length - 2 * repeat_length - DELETED_LENGTH
     assert int(m['ref_bases_covered_multiple']) == 0
     assert m['contig_fraction_aligned'] == '1.0'
     assert int(m['num_unaligned_contigs']) == 0
@@ -215,13 +220,16 @@ def test_assessment_metrics(tmp_path, sim):
     assert int(m['num_ambiguous_alignments']) == 1
 
 
-def test_gaps_bed_are_repeat_copies(tmp_path, sim):
+def test_gaps_bed(tmp_path, sim):
+    # Repeat gaps are the uncovered repeat copies; the unique gap is the deleted region
     run(tmp_path, sim)
-    lines = (tmp_path / "out" / "gaps.bed").read_text().splitlines()
-    assert len(lines) == 2
-    for line in lines:
-        _, start, end, _ = line.split('\t')
-        assert sim['ref'][int(start):int(end)] == sim['repeat']
+    gaps = [line.split('\t') for line in (tmp_path / "out" / "gaps.bed").read_text().splitlines()]
+    assert len(gaps) == 3
+    for _, start, end, name in gaps:
+        if name.endswith('_repeat'):
+            assert sim['ref'][int(start):int(end)] == sim['repeat']
+        else:
+            assert (int(start), int(end)) == (DELETED_START, DELETED_END)
 
 
 def test_events_match_simulated_indels(tmp_path, sim):
@@ -268,11 +276,12 @@ def test_repeat_gaps_typed(tmp_path, sim):
     [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
     assert int(m['num_repeat_gaps']) == 2
     assert int(m['repeat_gap_length']) == 2 * len(sim['repeat'])
-    assert int(m['num_unique_gaps']) == 0
-    assert m['ref_fraction_covered_including_repeats'] == '1.0'
+    assert int(m['num_unique_gaps']) == 1
+    assert int(m['unique_gap_length']) == DELETED_LENGTH
+    assert float(m['ref_fraction_covered_including_repeats']) == round(1 - DELETED_LENGTH / len(sim['ref']), 4)
     assert int(m['num_ambiguous_contigs']) == 1
     names = [line.split('\t')[3] for line in (tmp_path / "out" / "gaps.bed").read_text().splitlines()]
-    assert names == ['gap_1_repeat', 'gap_2_repeat']
+    assert names == ['gap_1_unique', 'gap_2_repeat', 'gap_3_repeat']
     repeat_id = sim['truth_segments'][-1][0]
     repeat_rows = [r for r in rows if r['contig_id'] == repeat_id]
     assert len(repeat_rows) == 3
@@ -288,9 +297,10 @@ def test_missing_contig_is_unique_gap(tmp_path, sim):
     contigs = [c for c in sim['contigs'] if c[0] != dropped_id]
     output, _ = run(tmp_path, sim, contigs=contigs)
     [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
-    assert int(m['num_unique_gaps']) == 1
-    assert int(m['unique_gap_length']) == len(dropped_seq)
+    assert int(m['num_unique_gaps']) == 2   # the dropped contig's region, and the deleted region
+    assert int(m['unique_gap_length']) == len(dropped_seq) + DELETED_LENGTH
     assert int(m['num_repeat_gaps']) == 2
+    # The scaffold is built from contig sequence, so the deletion doesn't add Ns
     assert output['seq'].count('N') == len(dropped_seq)
 
 
@@ -334,7 +344,7 @@ def run_with_assembly(tmp_path, paths, bins=True, extra_args=()):
     return m, sources, out_dir
 
 
-def test_assembly_mode_finds_misbinned_contig(tmp_path, misbinned):
+def test_assembly_mode_finds_misbinned_contig(tmp_path, sim, misbinned):
     paths, misbinned_id, misbinned_seq = misbinned
     m, sources, out_dir = run_with_assembly(tmp_path, paths)
 
@@ -344,9 +354,9 @@ def test_assembly_mode_finds_misbinned_contig(tmp_path, misbinned):
     assert float(missed['contig_fraction_on_ref']) == 1.0
     assert float(missed['depth_relative_to_reconstruction']) == pytest.approx(1.0)
 
-    assert int(m['unique_gap_length']) == len(misbinned_seq)          # reconstruction alone
-    assert int(m['assembly_unique_gap_length']) == 0                    # assembly has everything
-    assert m['assembly_ref_fraction_covered_including_repeats'] == '1.0'
+    assert int(m['unique_gap_length']) == len(misbinned_seq) + DELETED_LENGTH   # reconstruction alone
+    assert int(m['assembly_unique_gap_length']) == DELETED_LENGTH   # the assembly has all but the deletion
+    assert float(m['assembly_ref_fraction_covered_including_repeats']) == round(1 - DELETED_LENGTH / len(sim['ref']), 4)
     assert int(m['missed_ref_bases']) == len(misbinned_seq)
     assert int(m['num_missed_contigs']) == 1
     assert int(m['num_reconstruction_contigs_not_in_assembly']) == 0
@@ -411,3 +421,78 @@ def test_duplicate_reconstruction_contigs_counted_once(tmp_path, sim):
     assert int(m['ref_bases_covered_multiple']) == 0
     assert {r['contig_id'] for r in rows} == {c for c, _ in sim['contigs']}
     assert output['seq'].upper() in sim['sample'] + sim['sample']
+
+
+# --- feature annotations ---
+
+def write_ref_features_bed(path):
+    # Positions on the simulated ref (see tests/simulate.py)
+    path.write_text('\n'.join([
+        'ref\t20000\t21000\tgeneA',        # unique, in a reconstruction contig
+        'ref\t5500\t6500\tgeneDeleted',    # in the region deleted from the sample
+        'ref\t15100\t16200\tIS_copy1',     # the three repeat copies
+        'ref\t31400\t32500\tIS_copy2',
+        'ref\t47700\t48800\tIS_copy3',
+        'ref\t50000\t51000\tgeneMisbinned',  # on the contig binned as chromosome
+    ]) + '\n')
+
+
+def write_sample_features(path):
+    from tests.test_features import write_hamronization
+    write_hamronization(path, [
+        ('geneOnMisbinned', 1001, 2000, 'contig_2', '+', 'X'),
+        ('geneInInsertion', 8001, 9000, 'contig_0', '+', 'Y'),   # in the 3 kb novel insertion
+        ('geneOnRevcompContig', 1001, 2000, 'contig_1', '+', 'Z'),
+        ('geneOnChromosome', 1001, 2000, 'chrom_plain', '+', ''),
+        ('geneOnSharedContig', 1, 1000, 'chrom_IS', '-', ''),
+    ])
+
+
+def test_ref_features(tmp_path, misbinned):
+    paths, _, _ = misbinned
+    write_ref_features_bed(tmp_path / 'ref_features.bed')
+    m, _, out_dir = run_with_assembly(tmp_path, paths, extra_args=['--ref-features', str(tmp_path / 'ref_features.bed')])
+    rows = {r['name']: r for r in read_tsv(out_dir / 'ref_features.tsv')}
+    assert rows['geneA']['reconstruction_status'] == 'present'
+    assert rows['geneA']['found_in'] == 'reconstruction'
+    assert (rows['geneDeleted']['reconstruction_status'], rows['geneDeleted']['assembly_status']) == ('absent', 'absent')
+    assert (rows['geneMisbinned']['reconstruction_status'], rows['geneMisbinned']['assembly_status'],
+            rows['geneMisbinned']['found_in']) == ('absent', 'present', 'chromosome')
+    assert sorted(rows[f'IS_copy{i}']['reconstruction_status'] for i in (1, 2, 3)) == ['inferred', 'inferred', 'present']
+    assert (m['num_ref_features'], m['num_ref_features_present'], m['num_ref_features_inferred'],
+            m['num_ref_features_absent'], m['num_ref_features_missed']) == ('6', '2', '2', '2', '1')
+
+
+def test_sample_features(tmp_path, misbinned):
+    paths, _, _ = misbinned
+    write_sample_features(tmp_path / 'features.tsv')
+    m, _, out_dir = run_with_assembly(tmp_path, paths, extra_args=['--features', str(tmp_path / 'features.tsv')])
+    rows = {r['name']: r for r in read_tsv(out_dir / 'features.tsv')}
+    assert 'geneOnChromosome' not in rows   # contig doesn't align to the ref
+
+    misbinned_gene = rows['geneOnMisbinned']
+    assert (misbinned_gene['contig_classification'], misbinned_gene['bin'], misbinned_gene['ref_status']) == ('missed', 'chromosome', 'on_ref')
+    assert (misbinned_gene['ref_start'], misbinned_gene['ref_end']) == ('49900', '50900')
+
+    # A gene in sequence the ref doesn't have is on a reconstruction contig, but not on the ref
+    insertion_gene = rows['geneInInsertion']
+    assert (insertion_gene['contig_classification'], insertion_gene['ref_status'], insertion_gene['ref_start']) == ('in_reconstruction', 'not_on_ref', 'NA')
+
+    # contig_1 is reverse-complemented relative to the ref; it covers ref 16300-31300 with a 4 bp
+    # deletion at 25000, so contig 1000-2000 is ref 29300-30300
+    rc_gene = rows['geneOnRevcompContig']
+    assert (rc_gene['ref_status'], rc_gene['ref_start'], rc_gene['ref_end']) == ('on_ref', '29300', '30300')
+
+    assert (rows['geneOnSharedContig']['contig_classification'], rows['geneOnSharedContig']['ref_status']) == ('shared', 'not_on_ref')
+    assert (m['num_features'], m['num_features_not_on_ref'], m['num_features_on_missed_contigs']) == ('4', '2', '1')
+
+
+def test_sample_features_without_assembly(tmp_path, sim):
+    write_sample_features(tmp_path / 'features.tsv')
+    _, _ = run(tmp_path, sim, extra_args=['--features', str(tmp_path / 'features.tsv')])
+    rows = {r['name']: r for r in read_tsv(tmp_path / 'out' / 'features.tsv')}
+    # Only features on reconstruction contigs; no bins
+    assert set(rows) == {'geneOnMisbinned', 'geneInInsertion', 'geneOnRevcompContig'}
+    assert all(r['bin'] == 'NA' and r['contig_classification'] == 'in_reconstruction' for r in rows.values())
+    [m] = read_tsv(tmp_path / 'out' / 'assessment.tsv')
+    assert m['num_ref_features'] == 'NA'

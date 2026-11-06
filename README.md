@@ -17,8 +17,11 @@ reference plasmid.
 usage: plasmid-surgery [-h] --plasmid-reconstruction PLASMID_RECONSTRUCTION
                        --ref-plasmid REF_PLASMID [--assembly ASSEMBLY]
                        [--bins FASTA [FASTA ...]]
-                       [--min-missed-fraction MIN_MISSED_FRACTION] [-o OUTDIR]
-                       [-p PREFIX] [--tmpdir TMPDIR]
+                       [--min-missed-fraction MIN_MISSED_FRACTION]
+                       [--ref-features FILE [FILE ...]]
+                       [--features FILE [FILE ...]]
+                       [--min-feature-coverage MIN_FEATURE_COVERAGE]
+                       [-o OUTDIR] [-p PREFIX] [--tmpdir TMPDIR]
                        [--min-indel-length MIN_INDEL_LENGTH]
                        [--min-unaligned-length MIN_UNALIGNED_LENGTH]
                        [--sample-id SAMPLE_ID]
@@ -44,6 +47,21 @@ options:
                         With --assembly: minimum fraction of an assembly
                         contig aligned to the ref (at a single location) to
                         call it 'missed' rather than 'shared' (default: 0.8)
+  --ref-features FILE [FILE ...]
+                        Feature (gene) annotations on the ref plasmid:
+                        hAMRonization TSV, GFF3 or BED. Reports how completely
+                        the reconstruction (and assembly) contains each
+                        (ref_features.tsv)
+  --features FILE [FILE ...]
+                        Feature (gene) annotations on the sample's assembly or
+                        reconstruction contigs: hAMRonization TSV, GFF3 or
+                        BED. Reports, for features on the reconstruction (and
+                        with --assembly, on any contig aligning to the ref),
+                        where each is and whether it's on the ref
+                        (features.tsv)
+  --min-feature-coverage MIN_FEATURE_COVERAGE
+                        Minimum fraction of a feature covered to call it
+                        present / on the ref (default: 0.9)
   -o OUTDIR, --outdir OUTDIR
                         Output directory (default: current directory)
   -p PREFIX, --prefix PREFIX
@@ -54,7 +72,8 @@ options:
                         used and removed afterwards.
   --min-indel-length MIN_INDEL_LENGTH
                         Minimum length of an insertion/deletion to report as
-                        an event (default: 50)
+                        an event. Deletions at least this long also count as
+                        uncovered ref sequence (gaps) (default: 50)
   --min-unaligned-length MIN_UNALIGNED_LENGTH
                         Minimum length of an unaligned contig region to report
                         (default: 100)
@@ -95,6 +114,20 @@ plasmid-surgery \
   -p sample1
 ```
 
+With gene annotations of the ref plasmid and of the assembly (see [Feature annotations](#feature-annotations)):
+
+```
+plasmid-surgery \
+  --plasmid-reconstruction mob_recon/sample1/plasmid_AA123.fasta \
+  --ref-plasmid CP012345.fa \
+  --assembly sample1.fasta \
+  --bins mob_recon/sample1/*.fasta \
+  --ref-features CP012345.ncbi.hamronized.tsv CP012345.plasmidfinder.hamronized.tsv \
+  --features sample1.ncbi.hamronized.tsv sample1.plasmidfinder.hamronized.tsv \
+  -o results/sample1 \
+  -p sample1
+```
+
 ## Outputs
 
 All outputs are written to `--outdir` (default: current directory), with filenames
@@ -110,6 +143,8 @@ prefixed by `<prefix>_` if `--prefix` is given.
 | `scaffold.fa`    | Reference-ordered sequence built from the aligned contigs, with inferred repeat copies in lowercase (see [Scaffold sequence](#scaffold-sequence)). Header is the sample ID. |
 | `contig_sources.tsv` | With `--assembly` only: every assembly contig that aligns to the ref, and where it is (see [Whole-assembly mode](#whole-assembly-mode)). |
 | `missed_contigs.fa`  | With `--assembly` only: assembly contigs classified `missed`, with `bin=<label>` in the header when `--bins` is given. |
+| `ref_features.tsv`   | With `--ref-features` only: each feature annotated on the ref, and how completely the reconstruction (and assembly) contains it. |
+| `features.tsv`       | With `--features` only: each feature on the reconstruction's contigs (and with `--assembly`, on any contig aligning to the ref), with its contig's classification and bin, and whether the feature itself is on the ref. |
 
 Intermediate minimap2 files go to a temporary directory that is removed after the run,
 unless `--tmpdir` is given, in which case they are kept there.
@@ -147,6 +182,17 @@ With `--assembly` (otherwise `NA`):
 | `num_missed_contigs`, `missed_contig_bases` | Contigs classified `missed` (written to `missed_contigs.fa`) |
 | `num_shared_contigs`, `num_repeat_contigs` | Other contigs classified `shared` or `repeat` |
 | `num_reconstruction_contigs_not_in_assembly` | Reconstruction contigs whose sequence isn't in `--assembly`. Should be 0; otherwise the reconstruction probably wasn't made from this assembly |
+
+With `--ref-features` / `--features` (otherwise `NA`):
+
+| field                        | description |
+|------------------------------|-------------|
+| `num_ref_features`           | Features annotated on the ref |
+| `num_ref_features_present`, `_partial`, `_absent`, `_inferred` | By `reconstruction_status` in `ref_features.tsv` |
+| `num_ref_features_missed`    | Ref features not present in the reconstruction but present in the assembly (with `--assembly`) |
+| `num_features`               | Sample features reported in `features.tsv` |
+| `num_features_not_on_ref`    | Of those, features not on the ref: sequence the ref doesn't have (e.g. an acquired gene, or a gene on a `shared` contig's other part) |
+| `num_features_on_missed_contigs` | Of those, features on `missed` contigs |
 
 Assessment metrics use only alignments that passed QC.
 
@@ -222,12 +268,68 @@ plasmid contig. If it's `shared` (only part of it matches the plasmid), a chromo
 more plausible. This is evidence, not proof: depth is noisy for short contigs, and the
 conclusion is only as good as the ref.
 
+## Feature annotations
+
+Gene (or any feature) annotations can be given for the ref (`--ref-features`) and for the sample's
+assembly or reconstruction (`--features`), in any of these formats (detected automatically; any
+number of files):
+
+- [hAMRonization](https://github.com/pha4ge/hAMRonization) TSV: one format for many tools, e.g.
+  abricate with any database (ncbi, plasmidfinder, vfdb, ...), AMRFinderPlus, RGI, ResFinder.
+  Note that hAMRonization's AMRFinderPlus parser drops virulence hits.
+- GFF3, e.g. from Bakta, Prokka or NCBI. Features that are only parents of other features (a
+  `gene` with a `CDS` child) are reported once.
+- BED: `seq_id`, `start`, `end`, and optionally `name` (column 4) and `strand` (column 6).
+
+No feature class is treated specially: names, products and categories (drug class for
+hAMRonization, feature type for GFF3) are passed through. Features are matched to sequences by ID
+(ignoring a `.N` version suffix), or by sequence when IDs differ: from a GFF3 `##FASTA` section
+(Bakta renames contigs by default), or, for `--features`, from `--assembly` (e.g. annotations of
+the assembly, with a TaDReP reconstruction whose contigs are renamed and reoriented).
+
+`ref_features.tsv` (one row per ref feature; coordinates 0-based, half-open):
+
+| field                     | description |
+|---------------------------|-------------|
+| `name`, `product`, `category`, `source` | From the annotation |
+| `ref_start`, `ref_end`, `strand`, `length` | Position on the ref |
+| `reconstruction_fraction` | Fraction of the feature covered by the reconstruction |
+| `inferred_fraction`       | Further fraction covered only by alternative placements (repeat copies; lowercase in the scaffold) |
+| `reconstruction_status`   | `present` (≥ `--min-feature-coverage`, default 0.9), `inferred` (present only counting alternative placements), `partial`, or `absent` |
+| `assembly_fraction`, `assembly_status` | The same for the whole assembly (with `--assembly`) |
+| `found_in`                | Where the assembly's copy is: `reconstruction` and/or bin labels (`-` if nowhere) |
+
+`features.tsv` (one row per sample feature on the reconstruction or, with `--assembly`, on a contig
+aligning to the ref; features on other contigs aren't reported):
+
+| field                     | description |
+|---------------------------|-------------|
+| `name`, `product`, `category`, `source` | From the annotation |
+| `contig_id`, `contig_start`, `contig_end`, `strand`, `length` | Position on the contig |
+| `contig_classification`, `bin` | As in `contig_sources.tsv` (`in_reconstruction` without `--assembly`) |
+| `fraction_on_ref`         | Fraction of the feature's bases matched to ref bases. Bases in an insertion relative to the ref don't count, so a gene inside novel sequence is `not_on_ref` even on a contig that otherwise aligns |
+| `ref_status`              | `on_ref`, `partial` or `not_on_ref` |
+| `ref_start`, `ref_end`    | Where the feature is on the ref, if both its ends are matched to it |
+
+Together they answer "is this gene where the ref has it?" from both sides. A ref gene `absent`
+from the reconstruction but `found_in` another bin, or a sample gene on a `missed` contig, points
+at a binning error. A ref gene `partial` or `absent` in the whole assembly means the assembly
+itself doesn't have it complete (e.g. a repeat collapsed into fragments too short to call). A
+sample gene `not_on_ref` is sequence the ref doesn't have.
+
 ## Reconstructions from other tools
 
 Any FASTA of contigs works as `--plasmid-reconstruction`, e.g. a mob_recon `plasmid_*.fasta` or a
 TaDReP `<sample>-<plasmid>-contigs.fna` (not `-pseudo.fna`, whose contigs are joined with fixed-length
 N gaps). Contigs whose sequence (in either orientation) repeats an earlier one are ignored with a
 warning: TaDReP, for example, writes a contig once per alignment hit.
+
+## Coverage and deletions
+
+Ref coverage (and so gaps, and feature coverage) counts the ref bases each alignment spans,
+except deletions within an alignment of at least `--min-indel-length` (default 50) bp: ref
+sequence the contig doesn't have. Such a deletion is reported both in `events.tsv` and as a
+gap. Shorter deletions count as covered, so that small indels don't fragment coverage.
 
 ## Circular references
 

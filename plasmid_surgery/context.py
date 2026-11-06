@@ -126,13 +126,15 @@ def bin_labels(bin_paths: list) -> dict:
     return {key: ','.join(sorted(set(v))) for key, v in labels.items()}
 
 
-def ref_mask(alignments: list[dict], ref_length: int) -> bytearray:
+def ref_mask(alignments: list[dict], ref_length: int,
+             min_deletion_length: int = assessment.DEFAULT_MIN_UNCOVERED_DELETION) -> bytearray:
     """
-    Per-base mask of the reference covered by the given alignments.
+    Per-base mask of the reference covered by the given alignments (excluding
+    deletions of at least min_deletion_length; see assessment.ref_intervals).
     """
     mask = bytearray(ref_length)
     for aln in alignments:
-        for start, end in assessment.split_circular_interval(aln['ref_start'], aln['ref_end'], ref_length):
+        for start, end in assessment.covered_ref_intervals(aln, ref_length, min_deletion_length):
             mask[start:end] = b'\x01' * (end - start)
     return mask
 
@@ -165,7 +167,8 @@ def length_weighted_mean_depth(contigs: list[dict]):
 
 def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_alignments: dict,
                             assembly_contigs: list[dict], ref: dict, tmpdir,
-                            bins: dict = None, min_missed_fraction: float = DEFAULT_MIN_MISSED_FRACTION) -> dict:
+                            bins: dict = None, min_missed_fraction: float = DEFAULT_MIN_MISSED_FRACTION,
+                            min_deletion_length: int = assessment.DEFAULT_MIN_UNCOVERED_DELETION) -> dict:
     """
     Classify the assembly contigs that align to the reference, and summarize how
     much of the reference the assembly could have provided beyond the
@@ -180,7 +183,11 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
     :param min_missed_fraction: Minimum fraction of a contig aligned to the ref
                                 (at a single location) to call it 'missed'
     :return: dict with 'metrics' (CONTEXT_METRICS_FIELDNAMES), 'contigs' (rows
-             for CONTIG_SOURCES_FIELDNAMES) and 'missed_contigs' (contig dicts)
+             for CONTIG_SOURCES_FIELDNAMES), 'missed_contigs' (contig dicts),
+             'placements' (placement alignments of all assembly contigs aligning
+             to the ref, reconstruction included), 'contigs_by_id' (those
+             contigs), 'classifications' and 'locations' (contig ID ->
+             classification, and -> bin label or 'reconstruction')
     """
     ref_length = len(ref['seq'])
     reconstruction_keys = {sequence_key(c['seq']) for c in reconstruction_contigs}
@@ -230,7 +237,7 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
                 'bin': (bins.get(sequence_key(contig['seq']), 'unbinned') if bins is not None else 'NA'),
                 'classification': classification,
                 'contig_fraction_on_ref': round(fraction_on_ref, 4),
-                'ref_bases_covered': sum(ref_mask(alns, ref_length)),
+                'ref_bases_covered': sum(ref_mask(alns, ref_length, min_deletion_length)),
                 'ref_start': primary['ref_start'],
                 'ref_end': ref_end,
                 'num_placements': num_placements,
@@ -242,14 +249,14 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
 
     all_placements = reconstruction_alignments['placements'] + other['placements']
     all_alternatives = reconstruction_alignments['alternatives'] + other['alternatives']
-    assembly_mask = ref_mask(all_placements, ref_length)
+    assembly_mask = ref_mask(all_placements, ref_length, min_deletion_length)
     assembly_covered = sum(assembly_mask)
-    gaps = assessment.find_typed_gaps(all_placements, all_alternatives, ref_length)
+    gaps = assessment.find_typed_gaps(all_placements, all_alternatives, ref_length, min_deletion_length)
     repeat_gap_length = sum(g['end'] - g['start'] for g in gaps if g['type'] == 'repeat')
     unique_gap_length = sum(g['end'] - g['start'] for g in gaps if g['type'] == 'unique')
 
-    reconstruction_mask = ref_mask(reconstruction_alignments['placements'], ref_length)
-    missed_mask = ref_mask(missed_alignments, ref_length)
+    reconstruction_mask = ref_mask(reconstruction_alignments['placements'], ref_length, min_deletion_length)
+    missed_mask = ref_mask(missed_alignments, ref_length, min_deletion_length)
     missed_ref_bases = sum(1 for m, r in zip(missed_mask, reconstruction_mask) if m and not r)
 
     metrics = {
@@ -265,7 +272,24 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
         'num_reconstruction_contigs_not_in_assembly': not_in_assembly,
     }
 
-    return {'metrics': metrics, 'contigs': rows, 'missed_contigs': missed_contigs}
+    classifications = {r['contig_id']: r['classification'] for r in rows}
+    locations = {}
+    for r in rows:
+        if r['classification'] == 'in_reconstruction':
+            locations[r['contig_id']] = 'reconstruction'
+        else:
+            locations[r['contig_id']] = r['bin'] if r['bin'] != 'NA' else 'assembly'
+    aligned_contigs = {cid: contigs_by_id[cid] for cid in classifications}
+
+    return {
+        'metrics': metrics,
+        'contigs': rows,
+        'missed_contigs': missed_contigs,
+        'placements': all_placements,
+        'contigs_by_id': aligned_contigs,
+        'classifications': classifications,
+        'locations': locations,
+    }
 
 
 def write_contig_sources(path, rows: list[dict]) -> None:

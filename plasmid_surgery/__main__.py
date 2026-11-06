@@ -13,6 +13,7 @@ import plasmid_surgery.parsers as parsers
 import plasmid_surgery.alignment as alignment
 import plasmid_surgery.assessment as assessment
 import plasmid_surgery.context as context
+import plasmid_surgery.features as features
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,9 @@ OUTPUT_FILENAMES = {
     # Only with --assembly
     'contig_sources': 'contig_sources.tsv',
     'missed_contigs': 'missed_contigs.fa',
+    # Only with --ref-features / --features
+    'ref_features': 'ref_features.tsv',
+    'features': 'features.tsv',
 }
 
 SUMMARY_OUTPUT_FIELDNAMES = [
@@ -73,10 +77,13 @@ def parse_args(argv=None):
     parser.add_argument('--assembly', help="Full assembly the reconstruction was made from. Reports where the rest of the ref plasmid's sequence is in the assembly (contig_sources.tsv, missed_contigs.fa)")
     parser.add_argument('--bins', nargs='+', metavar='FASTA', help="Other bins of the reconstruction tool (e.g. mob_recon's plasmid_*.fasta and chromosome.fasta), used to label assembly contigs by bin. Requires --assembly")
     parser.add_argument('--min-missed-fraction', type=float, default=context.DEFAULT_MIN_MISSED_FRACTION, help=f"With --assembly: minimum fraction of an assembly contig aligned to the ref (at a single location) to call it 'missed' rather than 'shared' (default: {context.DEFAULT_MIN_MISSED_FRACTION})")
+    parser.add_argument('--ref-features', nargs='+', metavar='FILE', help="Feature (gene) annotations on the ref plasmid: hAMRonization TSV, GFF3 or BED. Reports how completely the reconstruction (and assembly) contains each (ref_features.tsv)")
+    parser.add_argument('--features', nargs='+', metavar='FILE', help="Feature (gene) annotations on the sample's assembly or reconstruction contigs: hAMRonization TSV, GFF3 or BED. Reports, for features on the reconstruction (and with --assembly, on any contig aligning to the ref), where each is and whether it's on the ref (features.tsv)")
+    parser.add_argument('--min-feature-coverage', type=float, default=features.DEFAULT_MIN_FEATURE_COVERAGE, help=f"Minimum fraction of a feature covered to call it present / on the ref (default: {features.DEFAULT_MIN_FEATURE_COVERAGE})")
     parser.add_argument('-o', '--outdir', default='.', help="Output directory (default: current directory)")
     parser.add_argument('-p', '--prefix', help="Prefix for output filenames, e.g. '-p sample1' gives 'sample1_assessment.tsv' (default: no prefix)")
     parser.add_argument('--tmpdir', help="Directory for intermediate minimap2 files, kept after the run. If not supplied, a temporary directory is used and removed afterwards.")
-    parser.add_argument('--min-indel-length', type=int, default=50, help="Minimum length of an insertion/deletion to report as an event (default: 50)")
+    parser.add_argument('--min-indel-length', type=int, default=50, help="Minimum length of an insertion/deletion to report as an event. Deletions at least this long also count as uncovered ref sequence (gaps) (default: 50)")
     parser.add_argument('--min-unaligned-length', type=int, default=100, help="Minimum length of an unaligned contig region to report (default: 100)")
     parser.add_argument('--sample-id', help="Sample ID, used as the scaffold fasta header and the sample_id in assessment output. If not supplied, uses --prefix if given, otherwise the plasmid reconstruction filename (minus file extension)")
     parser.add_argument('--output-bases-per-line', type=int, default=70, help="Number of bases per line in output fasta files (default: 70)")
@@ -228,6 +235,8 @@ def run(args, outputs: dict, tmpdir) -> int:
     )
     metrics = {'sample_id': sample_id, 'ref_id': ref_plasmid_id, **assessment_result['metrics']}
 
+    assembly_contigs = None
+    context_result = None
     if args.assembly:
         assembly_contigs = parsers.parse_fasta(args.assembly)
         bins = context.bin_labels(args.bins) if args.bins else None
@@ -235,6 +244,7 @@ def run(args, outputs: dict, tmpdir) -> int:
             context_result = context.assess_assembly_context(
                 plasmid_reconstruction_contigs, recon_alignments, assembly_contigs, ref_plasmid, tmpdir,
                 bins=bins, min_missed_fraction=args.min_missed_fraction,
+                min_deletion_length=args.min_indel_length,
             )
         except alignment.AlignmentError as e:
             logger.error(str(e))
@@ -242,9 +252,51 @@ def run(args, outputs: dict, tmpdir) -> int:
         metrics.update(context_result['metrics'])
         context.write_contig_sources(outputs['contig_sources'], context_result['contigs'])
         context.write_missed_contigs(outputs['missed_contigs'], context_result['missed_contigs'], bins, args.output_bases_per_line)
+    else:
+        bins = None
+
+    if args.ref_features:
+        ref_feature_list, ref_feature_sequences = features.read_features(args.ref_features)
+        mapped, unmapped = features.map_features(ref_feature_list, [ref_plasmid], ref_feature_sequences)
+        if unmapped:
+            log = logger.warning if not mapped else logger.info
+            log(f"{unmapped} ref feature(s) are not on the ref plasmid ({ref_plasmid_id}) and were ignored")
+        rows, feature_metrics = features.assess_ref_features(
+            mapped, ref_plasmid_length, recon_alignments,
+            assembly_alignments=context_result['placements'] if context_result else None,
+            labels=context_result['locations'] if context_result else None,
+            min_coverage=args.min_feature_coverage,
+            min_deletion_length=args.min_indel_length,
+        )
+        features.write_rows(outputs['ref_features'], rows, features.REF_FEATURES_FIELDNAMES)
+        metrics.update(feature_metrics)
+
+    if args.features:
+        sample_feature_list, sample_feature_sequences = features.read_features(args.features)
+        contigs_of_interest = {c['seq_id']: c for c in plasmid_reconstruction_contigs}
+        classifications = {cid: 'in_reconstruction' for cid in contigs_of_interest}
+        placements = recon_alignments['placements']
+        known_sequences = dict(sample_feature_sequences)
+        if context_result:
+            contigs_of_interest.update(context_result['contigs_by_id'])
+            classifications.update(context_result['classifications'])
+            placements = context_result['placements']
+            known_sequences = {**{c['seq_id']: c['seq'] for c in assembly_contigs}, **known_sequences}
+        mapped, unmapped = features.map_features(sample_feature_list, list(contigs_of_interest.values()), known_sequences)
+        logger.info(f"{len(mapped)} feature(s) on the reconstruction{' or contigs aligning to the ref' if context_result else ''}; "
+                    f"{unmapped} elsewhere (not reported)")
+        if not mapped and not context_result:
+            logger.warning("No features matched the reconstruction's contigs. If they were annotated on the assembly, "
+                           "and the reconstruction tool renamed contigs, add --assembly so they can be matched by sequence")
+        rows, feature_metrics = features.assess_sample_features(
+            mapped, contigs_of_interest, placements, ref_plasmid_length, classifications,
+            bins=bins, min_coverage=args.min_feature_coverage,
+        )
+        features.write_rows(outputs['features'], rows, features.SAMPLE_FEATURES_FIELDNAMES)
+        metrics.update(feature_metrics)
 
     logger.info("Assessment: " + json.dumps(metrics))
-    assessment.write_metrics(outputs['assessment'], metrics, assessment.METRICS_FIELDNAMES + context.CONTEXT_METRICS_FIELDNAMES)
+    assessment.write_metrics(outputs['assessment'], metrics, assessment.METRICS_FIELDNAMES + context.CONTEXT_METRICS_FIELDNAMES + features.FEATURE_METRICS_FIELDNAMES)
     assessment.write_gaps_bed(outputs['gaps'], assessment_result['gaps'], ref_plasmid_id, ref_plasmid_length)
     assessment.write_events(outputs['events'], assessment_result['events'])
     assessment.write_unaligned_fasta(outputs['unaligned'], assessment_result['unaligned_regions'], args.output_bases_per_line)
