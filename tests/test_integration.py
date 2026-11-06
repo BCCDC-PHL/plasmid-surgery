@@ -292,3 +292,109 @@ def test_missing_contig_is_unique_gap(tmp_path, sim):
     assert int(m['unique_gap_length']) == len(dropped_seq)
     assert int(m['num_repeat_gaps']) == 2
     assert output['seq'].count('N') == len(dropped_seq)
+
+
+# --- whole-assembly mode ---
+
+@pytest.fixture
+def misbinned(tmp_path, sim):
+    """
+    Assembly where the reconstruction tool put one unique plasmid contig in the
+    chromosome bin. The chromosome bin also has a contig sharing 2 kb with the
+    plasmid, one containing the IS repeat, and one unrelated contig.
+    """
+    rng = random.Random(7)
+    plasmid_contigs = [(f"{cid} depth=2.00x", seq) for cid, seq in sim['contigs']]
+    misbinned_id, misbinned_seq = plasmid_contigs[2]
+    reconstruction = [c for c in plasmid_contigs if c[0] != misbinned_id]
+    contig_0_seq = dict(sim['truth_segments'])['contig_0']
+    chromosome = [
+        (misbinned_id, misbinned_seq),
+        ("chrom_shared depth=1.00x", random_seq(rng, 9000) + contig_0_seq[5000:7000] + random_seq(rng, 9000)),
+        ("chrom_IS depth=1.00x", random_seq(rng, 15000) + sim['repeat'] + random_seq(rng, 5000)),
+        ("chrom_plain depth=1.00x", random_seq(rng, 30000)),
+    ]
+    paths = {name: tmp_path / f"{name}.fasta" for name in ('reconstruction', 'chromosome', 'assembly', 'ref')}
+    write_fasta(paths['reconstruction'], reconstruction)
+    write_fasta(paths['chromosome'], chromosome)
+    write_fasta(paths['assembly'], chromosome[::-1] + reconstruction)
+    write_fasta(paths['ref'], [('ref', sim['ref'])])
+    return paths, misbinned_id.split()[0], misbinned_seq
+
+
+def run_with_assembly(tmp_path, paths, bins=True, extra_args=()):
+    out_dir = tmp_path / "out"
+    args = ['--plasmid-reconstruction', str(paths['reconstruction']), '--ref-plasmid', str(paths['ref']),
+            '--assembly', str(paths['assembly']), '-o', str(out_dir), '--log-level', 'warning', *extra_args]
+    if bins:
+        args += ['--bins', str(paths['reconstruction']), str(paths['chromosome'])]
+    assert main(args) == 0
+    [m] = read_tsv(out_dir / "assessment.tsv")
+    sources = {r['contig_id']: r for r in read_tsv(out_dir / "contig_sources.tsv")}
+    return m, sources, out_dir
+
+
+def test_assembly_mode_finds_misbinned_contig(tmp_path, misbinned):
+    paths, misbinned_id, misbinned_seq = misbinned
+    m, sources, out_dir = run_with_assembly(tmp_path, paths)
+
+    missed = sources[misbinned_id]
+    assert missed['classification'] == 'missed'
+    assert missed['bin'] == 'chromosome'
+    assert float(missed['contig_fraction_on_ref']) == 1.0
+    assert float(missed['depth_relative_to_reconstruction']) == pytest.approx(1.0)
+
+    assert int(m['unique_gap_length']) == len(misbinned_seq)          # reconstruction alone
+    assert int(m['assembly_unique_gap_length']) == 0                    # assembly has everything
+    assert m['assembly_ref_fraction_covered_including_repeats'] == '1.0'
+    assert int(m['missed_ref_bases']) == len(misbinned_seq)
+    assert int(m['num_missed_contigs']) == 1
+    assert int(m['num_reconstruction_contigs_not_in_assembly']) == 0
+
+    [missed_fasta] = parse_fasta(out_dir / "missed_contigs.fa")
+    assert missed_fasta['seq_id'] == misbinned_id
+    assert missed_fasta['description'] == 'bin=chromosome'
+    assert missed_fasta['seq'] == misbinned_seq
+
+
+def test_assembly_mode_classifies_shared_contigs(tmp_path, misbinned):
+    paths, _, _ = misbinned
+    m, sources, _ = run_with_assembly(tmp_path, paths)
+    # Contigs that only partly match the plasmid aren't binning errors
+    assert sources['chrom_shared']['classification'] == 'shared'
+    assert sources['chrom_IS']['classification'] == 'shared'
+    assert float(sources['chrom_IS']['depth_relative_to_reconstruction']) == pytest.approx(0.5)
+    assert 'chrom_plain' not in sources
+    assert int(m['num_shared_contigs']) == 2
+    # Reconstruction contigs are listed too
+    assert {r['classification'] for r in sources.values()} == {'in_reconstruction', 'missed', 'shared'}
+    assert all(r['bin'] == 'reconstruction' for r in sources.values() if r['classification'] == 'in_reconstruction')
+
+
+def test_assembly_mode_without_bins(tmp_path, misbinned):
+    paths, misbinned_id, _ = misbinned
+    _, sources, out_dir = run_with_assembly(tmp_path, paths, bins=False)
+    assert sources[misbinned_id]['classification'] == 'missed'
+    assert all(r['bin'] == 'NA' for r in sources.values())
+    [missed_fasta] = parse_fasta(out_dir / "missed_contigs.fa")
+    assert missed_fasta['description'] == ''
+
+
+def test_assembly_mode_reconstruction_contig_not_in_assembly(tmp_path, misbinned):
+    paths, _, _ = misbinned
+    assembly = [(c['seq_id'], c['seq']) for c in parse_fasta(paths['assembly'])]
+    write_fasta(paths['assembly'], [c for c in assembly if c[0] != 'contig_0'])
+    m, _, _ = run_with_assembly(tmp_path, paths)
+    assert int(m['num_reconstruction_contigs_not_in_assembly']) == 1
+
+
+def test_assessment_has_na_context_columns_without_assembly(tmp_path, sim):
+    run(tmp_path, sim)
+    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    assert m['missed_ref_bases'] == 'NA'
+    assert m['assembly_ref_fraction_covered'] == 'NA'
+
+
+def test_bins_require_assembly(tmp_path, sim):
+    with pytest.raises(SystemExit):
+        main(['--plasmid-reconstruction', 'r.fa', '--ref-plasmid', 'ref.fa', '--bins', 'b.fa'])

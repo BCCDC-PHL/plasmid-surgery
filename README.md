@@ -15,8 +15,11 @@ reference plasmid.
 
 ```
 usage: plasmid-surgery [-h] --plasmid-reconstruction PLASMID_RECONSTRUCTION
-                       --ref-plasmid REF_PLASMID [-o OUTDIR] [-p PREFIX]
-                       [--tmpdir TMPDIR] [--min-indel-length MIN_INDEL_LENGTH]
+                       --ref-plasmid REF_PLASMID [--assembly ASSEMBLY]
+                       [--bins FASTA [FASTA ...]]
+                       [--min-missed-fraction MIN_MISSED_FRACTION] [-o OUTDIR]
+                       [-p PREFIX] [--tmpdir TMPDIR]
+                       [--min-indel-length MIN_INDEL_LENGTH]
                        [--min-unaligned-length MIN_UNALIGNED_LENGTH]
                        [--sample-id SAMPLE_ID]
                        [--output-bases-per-line OUTPUT_BASES_PER_LINE]
@@ -28,6 +31,19 @@ options:
                         Plasmid reconstruction to be repaired.
   --ref-plasmid REF_PLASMID
                         Reference plasmid to be used for plasmid surgery.
+  --assembly ASSEMBLY   Full assembly the reconstruction was made from.
+                        Reports where the rest of the ref plasmid's sequence
+                        is in the assembly (contig_sources.tsv,
+                        missed_contigs.fa)
+  --bins FASTA [FASTA ...]
+                        Other bins of the reconstruction tool (e.g.
+                        mob_recon's plasmid_*.fasta and chromosome.fasta),
+                        used to label assembly contigs by bin. Requires
+                        --assembly
+  --min-missed-fraction MIN_MISSED_FRACTION
+                        With --assembly: minimum fraction of an assembly
+                        contig aligned to the ref (at a single location) to
+                        call it 'missed' rather than 'shared' (default: 0.8)
   -o OUTDIR, --outdir OUTDIR
                         Output directory (default: current directory)
   -p PREFIX, --prefix PREFIX
@@ -67,6 +83,18 @@ plasmid-surgery \
 This writes `results/sample1/sample1_assessment.tsv`, `results/sample1/sample1_gaps.bed`, etc.
 Without `-p`, files are named `assessment.tsv`, `gaps.bed`, etc.
 
+With the full assembly, and mob_recon's other outputs as bins (see [Whole-assembly mode](#whole-assembly-mode)):
+
+```
+plasmid-surgery \
+  --plasmid-reconstruction mob_recon/sample1/plasmid_AA123.fasta \
+  --ref-plasmid CP012345.fa \
+  --assembly sample1.fasta \
+  --bins mob_recon/sample1/*.fasta \
+  -o results/sample1 \
+  -p sample1
+```
+
 ## Outputs
 
 All outputs are written to `--outdir` (default: current directory), with filenames
@@ -80,6 +108,8 @@ prefixed by `<prefix>_` if `--prefix` is given.
 | `unaligned.fa`   | Contig regions of at least `--min-unaligned-length` bp that don't align to the ref (whole unaligned contigs, or unaligned contig ends). Headers are `<contig_id>:<start>-<end>`, 1-based inclusive. |
 | `summary.tsv`    | One row per contig alignment (see below). |
 | `scaffold.fa`    | Reference-ordered sequence built from the aligned contigs, with inferred repeat copies in lowercase (see [Scaffold sequence](#scaffold-sequence)). Header is the sample ID. |
+| `contig_sources.tsv` | With `--assembly` only: every assembly contig that aligns to the ref, and where it is (see [Whole-assembly mode](#whole-assembly-mode)). |
+| `missed_contigs.fa`  | With `--assembly` only: assembly contigs classified `missed`, with `bin=<label>` in the header when `--bins` is given. |
 
 Intermediate minimap2 files go to a temporary directory that is removed after the run,
 unless `--tmpdir` is given, in which case they are kept there.
@@ -105,6 +135,18 @@ unless `--tmpdir` is given, in which case they are kept there.
 | `num_large_insertions`, `num_large_deletions` | Events written to the events output |
 | `num_ambiguous_alignments`   | Placement alignments with mapping quality 0: the contig aligns equally well elsewhere on the ref (e.g. a repeated IS element) |
 | `num_ambiguous_contigs`      | Contigs with at least one alternative placement (see [Repeats](#repeats)) |
+
+With `--assembly` (otherwise `NA`):
+
+| field                        | description |
+|------------------------------|-------------|
+| `assembly_ref_bases_covered`, `assembly_ref_fraction_covered` | Ref coverage by the whole assembly, as `ref_bases_covered` / `ref_fraction_covered` are for the reconstruction |
+| `assembly_ref_fraction_covered_including_repeats` | As above, also counting repeat gaps as covered |
+| `assembly_unique_gap_length` | Ref bases no assembly contig could be placed at: missing from the assembly itself, not just from the reconstruction |
+| `missed_ref_bases`           | Ref bases covered by `missed` contigs but not by the reconstruction: what the reconstruction lost by binning |
+| `num_missed_contigs`, `missed_contig_bases` | Contigs classified `missed` (written to `missed_contigs.fa`) |
+| `num_shared_contigs`, `num_repeat_contigs` | Other contigs classified `shared` or `repeat` |
+| `num_reconstruction_contigs_not_in_assembly` | Reconstruction contigs whose sequence isn't in `--assembly`. Should be 0; otherwise the reconstruction probably wasn't made from this assembly |
 
 Assessment metrics use only alignments that passed QC.
 
@@ -141,6 +183,44 @@ Assessment metrics use only alignments that passed QC.
 | `alignment_length`   | Length of the alignment                                                 |
 | `percent_identity`   | Percent identity of the alignment (matches / alignment columns, including indels) |
 | `included_in_output` | The alignment is included in the output complete plasmid seq            |
+
+## Whole-assembly mode
+
+A reconstruction can miss parts of a plasmid because they weren't assembled, or because the
+reconstruction tool put contigs that were assembled in the wrong bin (another plasmid, or the
+chromosome). Given the full assembly with `--assembly`, plasmid-surgery separates the two, and
+lists every assembly contig that aligns to the ref in `contig_sources.tsv`:
+
+| field                    | description |
+|--------------------------|-------------|
+| `contig_id`, `contig_length` | Assembly contig |
+| `depth`                  | Read depth from the contig header (Unicycler `depth=`, SPAdes `_cov_`, `cov=`), if present |
+| `depth_relative_to_reconstruction` | `depth` relative to the length-weighted mean depth of the reconstruction's contigs |
+| `bin`                    | With `--bins`: the bin(s) containing the contig (FASTA filename without extension; comma-separated if more than one), or `unbinned`. `NA` without `--bins` |
+| `classification`         | See below |
+| `contig_fraction_on_ref` | Fraction of the contig aligned to the ref |
+| `ref_bases_covered`      | Ref bases covered by the contig |
+| `ref_start`, `ref_end`   | Position of the contig's primary alignment on the ref (`ref_end` < `ref_start` if it spans the origin) |
+| `num_placements`, `mapq`, `percent_identity` | As in `summary.tsv` |
+
+| classification       | meaning |
+|----------------------|---------|
+| `in_reconstruction`  | Part of the reconstruction being assessed |
+| `shared`             | Less than `--min-missed-fraction` (default 0.8) of the contig aligns to the ref. Likely a contig from the chromosome or another plasmid sharing some sequence (e.g. a transposon) with this one: not a binning error |
+| `repeat`             | Most of the contig aligns to the ref, but equally well at more than one place (e.g. an IS element), so it may belong on this plasmid, elsewhere, or both |
+| `missed`             | Most of the contig aligns to the ref, at a single location: likely a plasmid contig the reconstruction tool put elsewhere |
+
+`--bins` takes any number of FASTA files, e.g. mob_recon's `plasmid_*.fasta` and
+`chromosome.fasta`, or another tool's per-plasmid outputs. Contigs are matched between the
+reconstruction, the assembly and the bins by sequence (in either orientation), not by name, so
+tools that rename or reorient contigs work too.
+
+A carbapenemase gene on a contig that mob_recon calls chromosomal is a common puzzle. If that
+contig is classified `missed` against a plausible ref plasmid, its `depth_relative_to_reconstruction`
+is close to 1, and it is at well above chromosomal depth, that is good evidence it's a misbinned
+plasmid contig. If it's `shared` (only part of it matches the plasmid), a chromosomal location is
+more plausible. This is evidence, not proof: depth is noisy for short contigs, and the
+conclusion is only as good as the ref.
 
 ## Circular references
 
