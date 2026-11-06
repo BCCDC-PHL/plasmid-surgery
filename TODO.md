@@ -59,7 +59,7 @@ whenever contigs had indels relative to the reference.
 - [ ] Larger validation: simulate 150 bp reads (ART / InSilicoSeq) from closed
   plasmids in our collection, run the real assembly -> mob_recon -> plasmid-surgery
   chain and measure against truth.
-- [ ] CI (GitHub Actions) running the test suite.
+- [x] CI (GitHub Actions) running the test suite.
 
 ## Phase 3: Make it an assessment tool first
 
@@ -68,12 +68,19 @@ ref-length, N-filled FASTA is a reference-guided consensus that hides exactly th
 differences of interest. Make metrics the primary output and the scaffold an
 optional by-product.
 
-- [ ] **Model the circle explicitly.** Align against a doubled reference (or merge
-  primary + supplementary alignments into one wrapped placement) and fold
-  coordinates modulo ref length. Known failure, captured as a strict xfail test
-  (`test_origin_spanning_contig_with_split_gap`): minimap2 split an
-  origin-spanning contig into primary + supplementary with 7 bp of query aligned
-  in neither, so those bases are lost from the output.
+- [x] **Model the circle explicitly.** Each contig is aligned against the ref and
+  a copy rotated by L/2; the alignment covering more of the contig in fewer
+  segments wins, and coordinates are folded back to the original ref (an
+  alignment with `ref_end > L` wraps the origin and is split there when building
+  output). This fixed a case where minimap2 split an origin-spanning contig with
+  7 bp aligned in neither piece. A doubled ref was rejected because it makes
+  every alignment MAPQ 0.
+  - [ ] Remaining edge case: a contig spanning *both* the origin and L/2 (i.e.
+    longer than half the plasmid, which is rare for short-read contigs) is split
+    either way. A third rotation, or merging split alignments that are adjacent
+    on both query and ref, would cover this.
+  - [ ] Two alignments per contig doubles minimap2 runtime; fine for now, revisit
+    together with the "one minimap2 call per sample" item in Phase 4.
 - [ ] **Reference coverage.** Breadth covered 1x, covered >1x; BED of uncovered gaps
   with lengths.
 - [ ] **Reconstruction accounted for.** Per contig, fraction of contig length

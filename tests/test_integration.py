@@ -75,8 +75,14 @@ def test_summary(tmp_path, sim):
     for contig_id, contig_rows in by_id.items():
         expected_rc = str(int(contig_id.split('_')[1]) % 2 == 1)
         assert all(r['reverse_complement'] == expected_rc for r in contig_rows)
-    # The origin-spanning contig is split into primary + supplementary
-    assert any(len(r) == 2 and {x['is_supplementary'] for x in r} == {'True', 'False'} for r in by_id.values())
+    # The origin-spanning contig is placed as a single wrapping alignment
+    # (rather than minimap2's primary + supplementary split on a linear ref)
+    origin_rows = [r for r in rows if r['spans_origin'] == 'True']
+    assert len(origin_rows) == 1
+    origin_row = origin_rows[0]
+    assert len(by_id[origin_row['contig_id']]) == 1
+    assert origin_row['is_supplementary'] == 'False'
+    assert int(origin_row['alignment_end']) < int(origin_row['alignment_start'])
     # The repeat contig maps ambiguously
     repeat_id = sim['truth_segments'][-1][0]
     assert by_id[repeat_id][0]['mapq'] == '0'
@@ -87,37 +93,30 @@ def test_summary(tmp_path, sim):
 
 
 def origin_spanning_contig_id(rows):
-    supplementary = {r['contig_id'] for r in rows if r['is_supplementary'] == 'True'}
-    assert len(supplementary) == 1
-    return supplementary.pop()
+    spanning = {r['contig_id'] for r in rows if r['spans_origin'] == 'True'}
+    assert len(spanning) == 1
+    return spanning.pop()
 
 
 def test_overlapping_contigs_not_duplicated(tmp_path):
     # Contigs overlap their neighbours by 127 bp, like a SPAdes k=128 assembly
     sim = simulate(seed=2, contig_overlap=127)
     output, rows = run(tmp_path, sim)
-    origin_id = origin_spanning_contig_id(rows)
     for contig_id, segment in sim['truth_segments'][:-1]:
-        if contig_id == origin_id:
-            continue  # see test_origin_spanning_contig_with_split_gap
         # Each contig minus its trailing overlap should be present
         assert contained_circularly(segment[:-127], output['seq']), f"{contig_id} not intact in output"
-    # No overlap sequence is duplicated. Two repeat copies are uncovered, except
-    # that the contigs preceding them each extend 127 bp into them. Allow a few
-    # bases lost at the origin (see test_origin_spanning_contig_with_split_gap).
+    # No overlap sequence is duplicated and nothing is lost. Two repeat copies
+    # are uncovered, except that the contigs preceding them each extend 127 bp
+    # into them.
     seq = output['seq']
-    expected_covered = len(sim['sample']) - (2 * len(sim['repeat']) - 2 * 127)
-    covered = len(seq) - seq.count('N')
-    assert 0 <= expected_covered - covered < 20
+    assert seq.count('N') == 2 * len(sim['repeat']) - 2 * 127
     assert len(seq) == len(sim['sample'])
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "minimap2 doesn't treat the ref as circular. Here it splits the origin-spanning contig "
-    "into primary + supplementary alignments with 7 bp of query between them aligned in "
-    "neither, so those bases are lost and replaced by Ns. Fix by modelling the circle "
-    "explicitly (TODO.md, Phase 3)."))
 def test_origin_spanning_contig_with_split_gap(tmp_path):
+    # Regression: on a linear ref, minimap2 split this origin-spanning contig into
+    # primary + supplementary alignments with 7 bp of query aligned in neither,
+    # so those bases were lost from the output.
     sim = simulate(seed=2, contig_overlap=127)
     output, rows = run(tmp_path, sim)
     origin_id = origin_spanning_contig_id(rows)

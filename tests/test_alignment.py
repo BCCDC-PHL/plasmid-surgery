@@ -114,3 +114,58 @@ def test_alignment_qc_fails_low_identity():
     aln = make_aln('a', 0, 'A' * 1000)
     aln['percent_identity'] = 50.0
     assert alignment.alignment_qc(aln)['overall_qc_pass'] is False
+
+
+def test_rotate_ref():
+    ref = {'seq_id': 'r', 'seq': 'AAAACCCC'}
+    rotated = alignment.rotate_ref(ref, 3)
+    assert rotated['seq'] == 'ACCCCAAA'
+    assert rotated['seq_id'] != 'r'
+
+
+def test_unrotate_alignment_wraps_origin():
+    # ref length 100, rotated by 50: rotated position 40 == original position 90
+    aln = make_aln('a', 40, 'A' * 20)
+    alignment.unrotate_alignment(aln, shift=50, ref_length=100, ref_id='r')
+    assert (aln['ref_start'], aln['ref_end']) == (90, 110)
+    assert aln['ref_id'] == 'r'
+
+
+def test_unrotate_alignment_no_wrap():
+    aln = make_aln('a', 60, 'A' * 20)
+    alignment.unrotate_alignment(aln, shift=50, ref_length=100, ref_id='r')
+    assert (aln['ref_start'], aln['ref_end']) == (10, 30)
+
+
+@pytest.mark.parametrize("ref_pos", range(11, 20))
+def test_split_alignment_consistent_with_query_offset(ref_pos):
+    aln = make_aln('a', 10, 'AAAGGGCCTT', cigar='3=3I2=3D2=')
+    left, right = alignment.split_alignment_at_ref_pos(aln, ref_pos)
+    offset = alignment.query_offset_at_ref_pos(aln, ref_pos)
+    assert left['query_alignment_sequence'] == aln['query_alignment_sequence'][:offset]
+    assert right['query_alignment_sequence'] == aln['query_alignment_sequence'][offset:]
+    assert (left['ref_start'], left['ref_end']) == (10, ref_pos)
+    assert (right['ref_start'], right['ref_end']) == (ref_pos, 20)
+    # Each piece's CIGAR is consistent with its sequence and ref span
+    for piece in (left, right):
+        q_len = sum(l for op, l in piece['cigar_parsed'] if op in ('sequence_match', 'insertion_to_ref'))
+        r_len = sum(l for op, l in piece['cigar_parsed'] if op in ('sequence_match', 'deletion_to_ref'))
+        assert q_len == len(piece['query_alignment_sequence'])
+        assert r_len == piece['ref_end'] - piece['ref_start']
+
+
+def test_build_output_wrapping_alignment():
+    # 'a' covers ref 8..12 on a length-10 ref, i.e. wraps the origin
+    a = make_aln('a', 8, 'GGTT')
+    b = make_aln('b', 4, 'CC')
+    out = alignment.build_output_sequence([a, b], ref_length=10)
+    assert out == 'TT' + 'NN' + 'CC' + 'NN' + 'GG'
+    assert a['included_in_output'] and b['included_in_output']
+
+
+def test_build_output_wrapping_alignment_overlaps_first_contig():
+    # wrapped part of 'a' covers ref 0..2, 'b' starts at 1
+    a = make_aln('a', 8, 'GGTT')
+    b = make_aln('b', 1, 'TCCC')
+    out = alignment.build_output_sequence([a, b], ref_length=10)
+    assert out == 'TT' + 'CCC' + 'NNN' + 'GG'

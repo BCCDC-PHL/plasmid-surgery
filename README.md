@@ -1,5 +1,7 @@
 # Plasmid Surgery
 
+[![Tests](https://github.com/BCCDC-PHL/plasmid-surgery/actions/workflows/tests.yml/badge.svg)](https://github.com/BCCDC-PHL/plasmid-surgery/actions/workflows/tests.yml)
+
 ![Logo](docs/images/plasmid-surgery.png)
 
 Tools like [mob-suite](https://github.com/phac-nml/mob-suite) produce plasmid reconstructions that consist of a set of contigs
@@ -66,6 +68,7 @@ The plasmid surgery summary tsv file includes these fields:
 | `reverse_complement` | Aligned sequence is reverse-complement of original contig seq           |
 | `is_mapped`          | Contig is mapped somewhere against the ref plasmid                      |
 | `is_supplementary`   | Alignment is a supplementary (split) alignment of the contig            |
+| `spans_origin`       | Alignment wraps around the origin of the (circular) ref plasmid. If so, `alignment_end` < `alignment_start` |
 | `mapq`               | Mapping quality. 0 indicates the contig could equally well align elsewhere (e.g. a repeat such as an IS element) |
 | `alignment_start`    | Location on the ref plasmid where the contig alignment starts           |
 | `alignment_end`      | Location on the ref plasmid where the contig alignment ends             |
@@ -73,10 +76,25 @@ The plasmid surgery summary tsv file includes these fields:
 | `percent_identity`   | Percent identity of the alignment (matches / alignment columns, including indels) |
 | `included_in_output` | The alignment is included in the output complete plasmid seq            |
 
+## Circular references
+
+The reference plasmid is treated as circular. Each contig is aligned against both
+the reference and a copy rotated by half its length, and whichever alignment covers
+more of the contig in fewer pieces is kept. This means a contig spanning the
+reference origin is placed as a single alignment instead of being split by
+minimap2 (which would otherwise treat the reference as linear and can leave bases
+at the junction unaligned). All coordinates are reported relative to the original
+reference.
+
+The reference is deliberately not doubled: a doubled reference makes every
+alignment ambiguous (mapping quality 0), hiding genuinely repetitive contigs.
+
 ## Output sequence
 
-The output sequence is built by placing each aligned contig segment in order of its
-start position on the reference. Reference regions not covered by any contig are
+The output sequence starts at the reference origin and is built by placing each
+aligned contig segment in order of its start position on the reference. Alignments
+that span the origin are split there, with the part past the origin placed at the
+start of the output. Reference regions not covered by any contig are
 filled with `N` (one per uncovered reference base). Where two alignments overlap on
 the reference (e.g. the k-mer overlap between adjacent assembly contigs), the
 overlapping part of the later one is trimmed. Alignments entirely contained within
