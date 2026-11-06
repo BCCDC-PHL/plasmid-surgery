@@ -43,9 +43,9 @@ def run(tmp_path, sim, contigs=None, prefix=None, extra_args=()):
     ])
     assert rc == 0
     name = (lambda f: f"{prefix}_{f}") if prefix else (lambda f: f)
-    output = parse_fasta(out_dir / name("scaffold.fa"))
+    output = parse_fasta(out_dir / "ref" / name("scaffold.fa"))
     assert len(output) == 1
-    return output[0], read_summary(out_dir / name("summary.tsv"))
+    return output[0], read_summary(out_dir / "ref" / name("summary.tsv"))
 
 
 def contained_circularly(segment, seq):
@@ -145,7 +145,7 @@ def test_origin_spanning_contig_with_split_gap(tmp_path):
     assert contained_circularly(segment[:-127], output['seq'])
 
 
-EXPECTED_OUTPUTS = ['assessment.tsv', 'gaps.bed', 'events.tsv', 'unaligned.fa', 'summary.tsv', 'scaffold.fa']
+EXPECTED_OUTPUTS = ['reference.fa', 'assessment.tsv', 'gaps.bed', 'events.tsv', 'unaligned.fa', 'summary.tsv', 'scaffold.fa']
 
 
 def test_default_outdir_is_cwd_and_tmpdir_cleaned_up(tmp_path, sim, monkeypatch):
@@ -155,10 +155,13 @@ def test_default_outdir_is_cwd_and_tmpdir_cleaned_up(tmp_path, sim, monkeypatch)
     rc = main(['--plasmid-reconstruction', 'recon.fa', '--ref-plasmid', 'ref.fa',
                '--output-bases-per-line', '60', '--log-level', 'warning'])
     assert rc == 0
-    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(EXPECTED_OUTPUTS + ['recon.fa', 'ref.fa'])
-    lines = (tmp_path / 'scaffold.fa').read_text().splitlines()
+    # One subdirectory per reference, even for one, and the ranked assessment at the top level
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['assessment.tsv', 'recon.fa', 'ref', 'ref.fa']
+    assert sorted(p.name for p in (tmp_path / 'ref').iterdir()) == sorted(EXPECTED_OUTPUTS)
+    lines = (tmp_path / 'ref' / 'scaffold.fa').read_text().splitlines()
     assert lines[0] == '>recon'
     assert max(len(l) for l in lines[1:]) == 60
+    assert (tmp_path / 'ref' / 'reference.fa').read_text().startswith('>ref\n')
 
 
 def test_outdir_and_prefix(tmp_path, sim):
@@ -170,19 +173,62 @@ def test_outdir_and_prefix(tmp_path, sim):
     rc = main(['--plasmid-reconstruction', str(recon), '--ref-plasmid', str(ref),
                '-o', str(out_dir), '-p', 'sample1', '--log-level', 'warning'])
     assert rc == 0
-    assert sorted(p.name for p in out_dir.iterdir()) == sorted(f"sample1_{name}" for name in EXPECTED_OUTPUTS)
+    assert sorted(p.name for p in out_dir.iterdir()) == ['ref', 'sample1_assessment.tsv']
+    assert sorted(p.name for p in (out_dir / 'ref').iterdir()) == sorted(f"sample1_{name}" for name in EXPECTED_OUTPUTS)
     # Prefix is the default sample ID
-    assert (out_dir / 'sample1_scaffold.fa').read_text().startswith('>sample1\n')
+    assert (out_dir / 'ref' / 'sample1_scaffold.fa').read_text().startswith('>sample1\n')
     [m] = read_tsv(out_dir / 'sample1_assessment.tsv')
-    assert m['sample_id'] == 'sample1'
+    assert m['sample_id'] == 'sample1' and m['rank'] == '1'
 
 
 def test_sample_id_overrides_prefix(tmp_path, sim):
     output, _ = run(tmp_path, sim, prefix='run42', extra_args=['--sample-id', 'sample1'])
     assert output['seq_id'] == 'sample1'
-    out_dir = tmp_path / "out"
-    [m] = read_tsv(out_dir / 'run42_assessment.tsv')
+    [m] = read_tsv(tmp_path / "out" / 'run42_assessment.tsv')
     assert m['sample_id'] == 'sample1'
+
+
+# --- several references ---
+
+def test_several_references_ranked(tmp_path, sim):
+    # The true ref, a ref that's only part of it, and an unrelated one, in two files
+    import random as _random
+    partial = sim['ref'][20000:45000]
+    write_fasta(tmp_path / 'refs_a.fa', [('ref', sim['ref']), ('partial', partial)])
+    write_fasta(tmp_path / 'refs_b.fa', [('unrelated', random_seq(_random.Random(3), 30000))])
+    write_fasta(tmp_path / 'recon.fa', sim['contigs'])
+    out_dir = tmp_path / 'out'
+    rc = main(['--plasmid-reconstruction', str(tmp_path / 'recon.fa'),
+               '--ref-plasmid', str(tmp_path / 'refs_a.fa'), str(tmp_path / 'refs_b.fa'),
+               '-o', str(out_dir), '--log-level', 'warning'])
+    assert rc == 0
+    assert sorted(p.name for p in out_dir.iterdir()) == ['assessment.tsv', 'partial', 'ref', 'unrelated']
+    rows = read_tsv(out_dir / 'assessment.tsv')
+    assert [r['ref_id'] for r in rows] == ['ref', 'partial', 'unrelated']
+    assert [r['rank'] for r in rows] == ['1', '2', '3']
+    assert float(rows[0]['score']) > float(rows[1]['score']) > float(rows[2]['score'])
+    # Each reference's own assessment matches its row
+    for r in rows:
+        [own] = read_tsv(out_dir / r['ref_id'] / 'assessment.tsv')
+        assert own == r
+
+
+def test_duplicate_reference_ids_get_distinct_directories(tmp_path, sim):
+    write_fasta(tmp_path / 'refs.fa', [('ref', sim['ref']), ('ref', sim['ref'][:30000])])
+    write_fasta(tmp_path / 'recon.fa', sim['contigs'])
+    rc = main(['--plasmid-reconstruction', str(tmp_path / 'recon.fa'), '--ref-plasmid', str(tmp_path / 'refs.fa'),
+               '-o', str(tmp_path / 'out'), '--log-level', 'warning'])
+    assert rc == 0
+    assert sorted(p.name for p in (tmp_path / 'out').iterdir()) == ['assessment.tsv', 'ref', 'ref_2']
+
+
+def test_reference_source_required_and_exclusive(tmp_path):
+    with pytest.raises(SystemExit):
+        main(['--plasmid-reconstruction', 'r.fa'])
+    with pytest.raises(SystemExit):
+        main(['--plasmid-reconstruction', 'r.fa', '--ref-plasmid', 'a.fa', '--db-sketch', 'db.msh', '--db-fasta', 'db.fa'])
+    with pytest.raises(SystemExit):
+        main(['--plasmid-reconstruction', 'r.fa', '--db-sketch', 'db.msh'])   # needs --db-fasta
 
 
 def test_stale_ref_in_tmpdir_not_reused(tmp_path, sim):
@@ -203,7 +249,7 @@ def read_tsv(path):
 
 def test_assessment_metrics(tmp_path, sim):
     run(tmp_path, sim)
-    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    [m] = read_tsv(tmp_path / "out" / "ref" / "assessment.tsv")
     ref_length = len(sim['ref'])
     repeat_length = len(sim['repeat'])
     assert m['sample_id'] == 'recon'
@@ -223,7 +269,7 @@ def test_assessment_metrics(tmp_path, sim):
 def test_gaps_bed(tmp_path, sim):
     # Repeat gaps are the uncovered repeat copies; the unique gap is the deleted region
     run(tmp_path, sim)
-    gaps = [line.split('\t') for line in (tmp_path / "out" / "gaps.bed").read_text().splitlines()]
+    gaps = [line.split('\t') for line in (tmp_path / "out" / "ref" / "gaps.bed").read_text().splitlines()]
     assert len(gaps) == 3
     for _, start, end, name in gaps:
         if name.endswith('_repeat'):
@@ -235,7 +281,7 @@ def test_gaps_bed(tmp_path, sim):
 def test_events_match_simulated_indels(tmp_path, sim):
     # simulate() deletes ref[5000:7000] and inserts 3 kb of novel sequence at ref 40000
     run(tmp_path, sim)
-    events = {e['event_type']: e for e in read_tsv(tmp_path / "out" / "events.tsv")}
+    events = {e['event_type']: e for e in read_tsv(tmp_path / "out" / "ref" / "events.tsv")}
     assert set(events) == {'insertion', 'deletion'}
     deletion = events['deletion']
     assert abs(int(deletion['ref_start']) - 5000) <= 10
@@ -255,11 +301,11 @@ def test_unaligned_sequence_reported(tmp_path, sim):
     contigs.append(('contaminant', contaminant))
     _, rows = run(tmp_path, sim, contigs=contigs)
 
-    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    [m] = read_tsv(tmp_path / "out" / "ref" / "assessment.tsv")
     assert int(m['num_unaligned_contigs']) == 1
     assert int(m['num_unaligned_regions']) == 2
 
-    unaligned = {r['seq_id']: r for r in parse_fasta(tmp_path / "out" / "unaligned.fa")}
+    unaligned = {r['seq_id']: r for r in parse_fasta(tmp_path / "out" / "ref" / "unaligned.fa")}
     tail_region_id = f"{tail_contig_id}:{len(tail_contig_seq) + 1}-{len(tail_contig_seq) + 2000}"
     assert unaligned[tail_region_id]['seq'] == foreign_tail
     assert unaligned['contaminant:1-5000']['seq'] == contaminant
@@ -273,14 +319,14 @@ def test_unaligned_sequence_reported(tmp_path, sim):
 
 def test_repeat_gaps_typed(tmp_path, sim):
     _, rows = run(tmp_path, sim)
-    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    [m] = read_tsv(tmp_path / "out" / "ref" / "assessment.tsv")
     assert int(m['num_repeat_gaps']) == 2
     assert int(m['repeat_gap_length']) == 2 * len(sim['repeat'])
     assert int(m['num_unique_gaps']) == 1
     assert int(m['unique_gap_length']) == DELETED_LENGTH
     assert float(m['ref_fraction_covered_including_repeats']) == round(1 - DELETED_LENGTH / len(sim['ref']), 4)
     assert int(m['num_ambiguous_contigs']) == 1
-    names = [line.split('\t')[3] for line in (tmp_path / "out" / "gaps.bed").read_text().splitlines()]
+    names = [line.split('\t')[3] for line in (tmp_path / "out" / "ref" / "gaps.bed").read_text().splitlines()]
     assert names == ['gap_1_unique', 'gap_2_repeat', 'gap_3_repeat']
     repeat_id = sim['truth_segments'][-1][0]
     repeat_rows = [r for r in rows if r['contig_id'] == repeat_id]
@@ -296,7 +342,7 @@ def test_missing_contig_is_unique_gap(tmp_path, sim):
     dropped_id, dropped_seq = sim['contigs'][2]
     contigs = [c for c in sim['contigs'] if c[0] != dropped_id]
     output, _ = run(tmp_path, sim, contigs=contigs)
-    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    [m] = read_tsv(tmp_path / "out" / "ref" / "assessment.tsv")
     assert int(m['num_unique_gaps']) == 2   # the dropped contig's region, and the deleted region
     assert int(m['unique_gap_length']) == len(dropped_seq) + DELETED_LENGTH
     assert int(m['num_repeat_gaps']) == 2
@@ -339,9 +385,9 @@ def run_with_assembly(tmp_path, paths, bins=True, extra_args=()):
     if bins:
         args += ['--bins', str(paths['reconstruction']), str(paths['chromosome'])]
     assert main(args) == 0
-    [m] = read_tsv(out_dir / "assessment.tsv")
-    sources = {r['contig_id']: r for r in read_tsv(out_dir / "contig_sources.tsv")}
-    return m, sources, out_dir
+    [m] = read_tsv(out_dir / "ref" / "assessment.tsv")
+    sources = {r['contig_id']: r for r in read_tsv(out_dir / "ref" / "contig_sources.tsv")}
+    return m, sources, out_dir / "ref"
 
 
 def test_assembly_mode_finds_misbinned_contig(tmp_path, sim, misbinned):
@@ -400,7 +446,7 @@ def test_assembly_mode_reconstruction_contig_not_in_assembly(tmp_path, misbinned
 
 def test_assessment_has_na_context_columns_without_assembly(tmp_path, sim):
     run(tmp_path, sim)
-    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    [m] = read_tsv(tmp_path / "out" / "ref" / "assessment.tsv")
     assert m['missed_ref_bases'] == 'NA'
     assert m['assembly_ref_fraction_covered'] == 'NA'
 
@@ -416,7 +462,7 @@ def test_duplicate_reconstruction_contigs_counted_once(tmp_path, sim):
     duplicated_id, duplicated_seq = contigs[0]
     contigs += [(f"{duplicated_id}_copy", duplicated_seq), (f"{duplicated_id}_rc", revcomp(duplicated_seq))]
     output, rows = run(tmp_path, sim, contigs=contigs)
-    [m] = read_tsv(tmp_path / "out" / "assessment.tsv")
+    [m] = read_tsv(tmp_path / "out" / "ref" / "assessment.tsv")
     assert int(m['num_contigs']) == len(sim['contigs'])
     assert int(m['ref_bases_covered_multiple']) == 0
     assert {r['contig_id'] for r in rows} == {c for c, _ in sim['contigs']}
@@ -490,9 +536,9 @@ def test_sample_features(tmp_path, misbinned):
 def test_sample_features_without_assembly(tmp_path, sim):
     write_sample_features(tmp_path / 'features.tsv')
     _, _ = run(tmp_path, sim, extra_args=['--features', str(tmp_path / 'features.tsv')])
-    rows = {r['name']: r for r in read_tsv(tmp_path / 'out' / 'features.tsv')}
+    rows = {r['name']: r for r in read_tsv(tmp_path / 'out' / 'ref' / 'features.tsv')}
     # Only features on reconstruction contigs; no bins
     assert set(rows) == {'geneOnMisbinned', 'geneInInsertion', 'geneOnRevcompContig'}
     assert all(r['bin'] == 'NA' and r['contig_classification'] == 'in_reconstruction' for r in rows.values())
-    [m] = read_tsv(tmp_path / 'out' / 'assessment.tsv')
+    [m] = read_tsv(tmp_path / 'out' / 'ref' / 'assessment.tsv')
     assert m['num_ref_features'] == 'NA'

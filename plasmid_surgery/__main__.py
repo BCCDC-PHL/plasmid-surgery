@@ -15,11 +15,13 @@ import plasmid_surgery.alignment as alignment
 import plasmid_surgery.assessment as assessment
 import plasmid_surgery.context as context
 import plasmid_surgery.features as features
+import plasmid_surgery.refs as refs
 
 logger = logging.getLogger(__name__)
 
-# Output files written to --outdir, named '<prefix>_<filename>' if --prefix is given
+# Output files written to <outdir>/<ref_id>/ for each reference, named '<prefix>_<filename>' if --prefix is given
 OUTPUT_FILENAMES = {
+    'reference': 'reference.fa',
     'assessment': 'assessment.tsv',
     'gaps': 'gaps.bed',
     'events': 'events.tsv',
@@ -32,6 +34,12 @@ OUTPUT_FILENAMES = {
     # Only with --ref-features / --features
     'ref_features': 'ref_features.tsv',
     'features': 'features.tsv',
+}
+
+# Written to <outdir>/ itself
+TOP_LEVEL_FILENAMES = {
+    'assessment': 'assessment.tsv',   # one row per reference, ranked
+    'candidates': 'candidates.tsv',   # with --db-sketch only
 }
 
 SUMMARY_OUTPUT_FIELDNAMES = [
@@ -74,10 +82,16 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog='plasmid-surgery',
-        description="Assess a plasmid reconstruction (a set of contigs) against a reference plasmid: where each contig "
-                    "belongs, what's missing or extra, and optionally where the rest of the plasmid is in the assembly.")
+        description="Assess a plasmid reconstruction (a set of contigs) against one or more reference plasmids: where each "
+                    "contig belongs, what's missing or extra, and optionally where the rest of the plasmid is in the assembly. "
+                    "References are given (--ref-plasmid), or found in a plasmid database (--db-sketch, --db-fasta). Each "
+                    "reference's outputs go to <outdir>/<ref_id>/, and <outdir>/assessment.tsv has one row per reference, ranked.")
     parser.add_argument('--plasmid-reconstruction', required=True, help="Plasmid reconstruction to assess: a FASTA of its contigs")
-    parser.add_argument('--ref-plasmid', required=True, help="Reference plasmid to assess it against: a FASTA (only the first sequence is used)")
+    source = parser.add_argument_group("references (one of)")
+    exclusive = source.add_mutually_exclusive_group(required=True)
+    exclusive.add_argument('--ref-plasmid', nargs='+', metavar='FASTA', help="Reference plasmid(s) to assess against: FASTA file(s); every sequence in them is a separate reference")
+    exclusive.add_argument('--db-sketch', help="mash sketch of a plasmid database to find references in (with --db-fasta; see plasmid-surgery-refs)")
+    refs.add_database_arguments(parser.add_argument_group("plasmid database (with --db-sketch)"))
     parser.add_argument('--assembly', help="Full assembly the reconstruction was made from. Reports where the rest of the ref plasmid's sequence is in the assembly (contig_sources.tsv, missed_contigs.fa)")
     parser.add_argument('--bins', nargs='+', metavar='FASTA', help="Other bins of the reconstruction tool (e.g. mob_recon's plasmid_*.fasta and chromosome.fasta), used to label assembly contigs by bin. Requires --assembly")
     parser.add_argument('--min-missed-fraction', type=float, default=context.DEFAULT_MIN_MISSED_FRACTION, help=f"With --assembly: minimum fraction of an assembly contig aligned to the ref (at a single location) to call it 'missed' rather than 'shared' (default: {context.DEFAULT_MIN_MISSED_FRACTION})")
@@ -104,23 +118,68 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.bins and not args.assembly:
         parser.error("--bins requires --assembly")
+    if args.db_sketch and not args.db_fasta:
+        parser.error("--db-sketch requires --db-fasta")
 
     return args
 
 
-def output_paths(outdir, prefix=None) -> dict:
+def output_paths(outdir, prefix=None, filenames=OUTPUT_FILENAMES) -> dict:
     """
-    Paths of all output files.
+    Paths of output files.
 
-    :param outdir: Output directory
+    :param outdir: Output directory (for a reference's outputs, <outdir>/<ref_id>)
     :param prefix: Optional filename prefix
-    :return: dict of output name (keys of OUTPUT_FILENAMES) -> Path
+    :return: dict of output name (keys of filenames) -> Path
     """
     outdir = Path(outdir)
     return {
         name: outdir / (f"{prefix}_{filename}" if prefix else filename)
-        for name, filename in OUTPUT_FILENAMES.items()
+        for name, filename in filenames.items()
     }
+
+
+def unique_dirnames(ref_ids: list[str]) -> list[str]:
+    """A directory name per reference: its ID made safe, with _2, _3, ... for repeats."""
+    names, seen = [], {}
+    for ref_id in ref_ids:
+        base = refs.safe_name(ref_id)
+        seen[base] = seen.get(base, 0) + 1
+        names.append(base if seen[base] == 1 else f"{base}_{seen[base]}")
+    return names
+
+
+def reference_score(metrics: dict) -> float:
+    """
+    (fraction of the reconstruction aligned) x (fraction of the reference covered), the coverage
+    being the whole assembly's when there is one: as plasmid-surgery-refs ranks candidates.
+    """
+    coverage = metrics.get('assembly_ref_fraction_covered', 'NA')
+    if coverage in ('NA', None):
+        coverage = metrics['ref_fraction_covered']
+    return round(float(metrics['contig_fraction_aligned']) * float(coverage), 4)
+
+
+def rank_references(results: list[dict]) -> None:
+    """Set 'score' and 'rank' (1 = best) on each reference's metrics, in place."""
+    for m in results:
+        m['score'] = reference_score(m)
+    order = sorted(range(len(results)), key=lambda i: (-results[i]['score'],
+                                                        -float(results[i]['ref_fraction_covered_including_repeats']), i))
+    for rank, i in enumerate(order, start=1):
+        results[i]['rank'] = rank
+
+
+def assessment_fieldnames() -> list:
+    fields = assessment.METRICS_FIELDNAMES + context.CONTEXT_METRICS_FIELDNAMES + features.FEATURE_METRICS_FIELDNAMES
+    return fields[:2] + ['rank', 'score'] + fields[2:]
+
+
+def write_fasta(path, seq_id: str, seq: str, bases_per_line: int, description: str = '') -> None:
+    with open(path, 'w') as f:
+        f.write(f">{seq_id} {description}".rstrip() + "\n")
+        for line in wrap(seq, bases_per_line):
+            f.write(f"{line}\n")
 
 
 def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fraction_aligned: dict) -> dict:
@@ -187,36 +246,59 @@ def summary_sort_key(row: dict):
 def main(argv=None):
     args = parse_args(argv)
     setup_logging(args.log_level)
-    outputs = output_paths(args.outdir, args.prefix)
     os.makedirs(args.outdir, exist_ok=True)
 
-    if args.tmpdir:
-        os.makedirs(args.tmpdir, exist_ok=True)
-        return run(args, outputs, args.tmpdir)
-    with tempfile.TemporaryDirectory(prefix='plasmid-surgery_') as tmpdir:
-        return run(args, outputs, tmpdir)
+    try:
+        if args.tmpdir:
+            os.makedirs(args.tmpdir, exist_ok=True)
+            return run(args, args.tmpdir)
+        with tempfile.TemporaryDirectory(prefix='plasmid-surgery_') as tmpdir:
+            return run(args, tmpdir)
+    except (alignment.AlignmentError, refs.RefSearchError) as e:
+        logger.error(str(e))
+        return 1
 
 
-def run(args, outputs: dict, tmpdir) -> int:
+def load_references(paths) -> list[dict]:
+    """Every sequence in the given FASTA files, each a separate reference."""
+    references = []
+    for path in paths:
+        records = parsers.parse_fasta(path)
+        if not records:
+            logger.warning(f"No sequences in ref plasmid file: {path}")
+        references += records
+    return references
+
+
+def find_references(args, tmpdir, outdir_files: dict) -> list[dict]:
+    """References from the plasmid database (plasmid-surgery-refs' search); writes candidates.tsv."""
+    search_tmp = Path(tmpdir) / 'reference_search'
+    search_tmp.mkdir(parents=True, exist_ok=True)
+    ranked, sequences = refs.find_refs(
+        args.plasmid_reconstruction, args.db_sketch, args.db_fasta, search_tmp,
+        db_fasta_index=args.db_fasta_index, assembly_fasta=args.assembly,
+        num_candidates=args.num_candidates, threads=args.threads,
+    )
+    refs.write_candidates(outdir_files['candidates'], ranked, args.top)
+    if ranked and ranked[0]['reconstruction_fraction_aligned'] < refs.WEAK_MATCH_FRACTION:
+        logger.warning(f"The best candidate reference ({ranked[0]['ref_id']}) accounts for only "
+                       f"{ranked[0]['reconstruction_fraction_aligned']:.0%} of the reconstruction: the database may not "
+                       "contain a closely related plasmid")
+    return [{'seq_id': r['ref_id'], 'seq': sequences[r['ref_id']], 'description': r['description']}
+            for r in ranked[:args.top]]
+
+
+def run(args, tmpdir) -> int:
     """
-    Align, assess and write outputs.
+    Assess the reconstruction against each reference, rank the references, and write outputs.
 
     :param args: Parsed command-line arguments
-    :param outputs: Output paths, from output_paths
     :param tmpdir: Directory for intermediate files
     :return: Exit code
     """
-
+    outdir = Path(args.outdir)
+    top_level = output_paths(outdir, args.prefix, TOP_LEVEL_FILENAMES)
     plasmid_reconstruction_contigs = deduplicate_contigs(parsers.parse_fasta(args.plasmid_reconstruction))
-    ref_plasmids = parsers.parse_fasta(args.ref_plasmid)
-    if not ref_plasmids:
-        logger.error(f"No sequences found in ref plasmid file: {args.ref_plasmid}")
-        return 1
-    if len(ref_plasmids) > 1:
-        logger.warning(f"Ref plasmid file contains {len(ref_plasmids)} sequences; using only the first: {ref_plasmids[0]['seq_id']}")
-    ref_plasmid = ref_plasmids[0]
-    ref_plasmid_length = len(ref_plasmid['seq'])
-    ref_plasmid_id = ref_plasmid['seq_id']
 
     if args.sample_id:
         sample_id = args.sample_id
@@ -226,12 +308,65 @@ def run(args, outputs: dict, tmpdir) -> int:
         plasmid_reconstruction_basename = os.path.basename(args.plasmid_reconstruction)
         sample_id = plasmid_reconstruction_basename.split('.')[0]
 
+    # Inputs shared by every reference, read once
+    assembly_contigs = parsers.parse_fasta(args.assembly) if args.assembly else None
+    bins = context.bin_labels(args.bins) if args.bins else None
+    ref_feature_input = features.read_features(args.ref_features) if args.ref_features else None
+    sample_feature_input = features.read_features(args.features) if args.features else None
+
+    if args.ref_plasmid:
+        references = load_references(args.ref_plasmid)
+    else:
+        references = find_references(args, tmpdir, top_level)
+    if not references:
+        logger.error("No references to assess against")
+        with open(top_level['assessment'], 'w') as f:
+            f.write('\t'.join(assessment_fieldnames()) + '\n')
+        return 1
+
+    results = []
+    per_reference_outputs = []
+    for ref_plasmid, dirname in zip(references, unique_dirnames([r['seq_id'] for r in references])):
+        outputs = output_paths(outdir / dirname, args.prefix)
+        os.makedirs(outdir / dirname, exist_ok=True)
+        ref_tmpdir = Path(tmpdir) / dirname
+        ref_tmpdir.mkdir(parents=True, exist_ok=True)
+        write_fasta(outputs['reference'], ref_plasmid['seq_id'], ref_plasmid['seq'], args.output_bases_per_line,
+                    ref_plasmid.get('description', ''))
+        results.append(assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs, ref_tmpdir, sample_id,
+                                        assembly_contigs, bins, ref_feature_input, sample_feature_input))
+        per_reference_outputs.append(outputs)
+
+    rank_references(results)
+    fieldnames = assessment_fieldnames()
+    for metrics, outputs in zip(results, per_reference_outputs):
+        assessment.write_metrics(outputs['assessment'], metrics, fieldnames)
+    with open(top_level['assessment'], 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='\t', extrasaction='ignore', restval='NA')
+        writer.writeheader()
+        writer.writerows(sorted(results, key=lambda m: m['rank']))
+    if len(results) > 1:
+        best = min(results, key=lambda m: m['rank'])
+        logger.info(f"Best reference: {best['ref_id']} (score {best['score']})")
+    return 0
+
+
+def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs, tmpdir, sample_id,
+                     assembly_contigs, bins, ref_feature_input, sample_feature_input) -> dict:
+    """
+    Assess the reconstruction against one reference, writing that reference's outputs
+    (except assessment.tsv, written once all references are ranked).
+
+    :return: the assessment metrics
+    """
+    ref_plasmid_length = len(ref_plasmid['seq'])
+    ref_plasmid_id = ref_plasmid['seq_id']
+
     logger.info(f"Aligning {len(plasmid_reconstruction_contigs)} reconstruction contig(s) vs. ref plasmid: {ref_plasmid_id}")
     try:
         recon_alignments = alignment.align_contigs(plasmid_reconstruction_contigs, ref_plasmid, tmpdir)
-    except alignment.AlignmentError as e:
-        logger.error(str(e))
-        return 1
+    except alignment.AlignmentError:
+        raise
     aligned_contigs = recon_alignments['placements']
     alternative_placements = recon_alignments['alternatives']
     failed_alignments = recon_alignments['failed']
@@ -248,11 +383,8 @@ def run(args, outputs: dict, tmpdir) -> int:
     )
     metrics = {'sample_id': sample_id, 'ref_id': ref_plasmid_id, **assessment_result['metrics']}
 
-    assembly_contigs = None
     context_result = None
-    if args.assembly:
-        assembly_contigs = parsers.parse_fasta(args.assembly)
-        bins = context.bin_labels(args.bins) if args.bins else None
+    if assembly_contigs is not None:
         try:
             context_result = context.assess_assembly_context(
                 plasmid_reconstruction_contigs, recon_alignments, assembly_contigs, ref_plasmid, tmpdir,
@@ -265,11 +397,9 @@ def run(args, outputs: dict, tmpdir) -> int:
         metrics.update(context_result['metrics'])
         context.write_contig_sources(outputs['contig_sources'], context_result['contigs'])
         context.write_missed_contigs(outputs['missed_contigs'], context_result['missed_contigs'], bins, args.output_bases_per_line)
-    else:
-        bins = None
 
-    if args.ref_features:
-        ref_feature_list, ref_feature_sequences = features.read_features(args.ref_features)
+    if ref_feature_input is not None:
+        ref_feature_list, ref_feature_sequences = ref_feature_input
         mapped, unmapped = features.map_features(ref_feature_list, [ref_plasmid], ref_feature_sequences)
         if unmapped:
             log = logger.warning if not mapped else logger.info
@@ -285,8 +415,8 @@ def run(args, outputs: dict, tmpdir) -> int:
         features.write_rows(outputs['ref_features'], rows, features.REF_FEATURES_FIELDNAMES)
         metrics.update(feature_metrics)
 
-    if args.features:
-        sample_feature_list, sample_feature_sequences = features.read_features(args.features)
+    if sample_feature_input is not None:
+        sample_feature_list, sample_feature_sequences = sample_feature_input
         contigs_of_interest = {c['seq_id']: c for c in plasmid_reconstruction_contigs}
         classifications = {cid: 'in_reconstruction' for cid in contigs_of_interest}
         placements = recon_alignments['placements']
@@ -309,8 +439,7 @@ def run(args, outputs: dict, tmpdir) -> int:
         features.write_rows(outputs['features'], rows, features.SAMPLE_FEATURES_FIELDNAMES)
         metrics.update(feature_metrics)
 
-    logger.info("Assessment: " + json.dumps(metrics))
-    assessment.write_metrics(outputs['assessment'], metrics, assessment.METRICS_FIELDNAMES + context.CONTEXT_METRICS_FIELDNAMES + features.FEATURE_METRICS_FIELDNAMES)
+    logger.info(f"Assessment vs. {ref_plasmid_id}: " + json.dumps(metrics))
     assessment.write_gaps_bed(outputs['gaps'], assessment_result['gaps'], ref_plasmid_id, ref_plasmid_length)
     assessment.write_events(outputs['events'], assessment_result['events'])
     assessment.write_unaligned_fasta(outputs['unaligned'], assessment_result['unaligned_regions'], args.output_bases_per_line)
@@ -330,7 +459,7 @@ def run(args, outputs: dict, tmpdir) -> int:
         for line in output_seq_wrapped:
             f.write(f"{line}\n")
 
-    return 0
+    return metrics
 
 
 if __name__ == '__main__':

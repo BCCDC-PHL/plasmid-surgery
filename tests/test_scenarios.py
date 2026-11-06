@@ -97,6 +97,8 @@ def test_reference_choice():
     assert f['small_covered'] > 0.9 and f['small_aligned'] == 1.0 and f['small_missed'] == 0
     assert f['large_covered'] == pytest.approx(f['fragment_length'] / f['large'])
     assert f['large_missed'] == f['large'] - f['fragment_length']
+    assert f['large_rank'] == 1 and f['small_rank'] == 2
+    assert f['best_without_assembly'] == 'small_ref'
 
 
 @pytest.mark.skipif(not mash_available(), reason="mash not on PATH")
