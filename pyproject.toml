@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plasmid-surgery"
+version = "0.1.0"
+description = "Order and orient plasmid reconstruction contigs against a reference plasmid"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Dan Fornika", email = "dan.fornika@bccdc.ca" }]
+# pysam is listed here for completeness; minimap2 must be installed separately (see environment.yml)
+dependencies = ["pysam"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/BCCDC-PHL/plasmid-surgery"
+
+[project.scripts]
+plasmid-surgery = "plasmid_surgery.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["plasmid_surgery*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
