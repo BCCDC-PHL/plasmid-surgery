@@ -24,3 +24,18 @@ with tempfile.TemporaryDirectory(prefix="plasmid-surgery-example-") as tmp:
         fh.write(page)
     with mkdocs_gen_files.open("example-report/map.svg", "w") as fh:
         fh.write((out / "pREF1" / "map.svg").read_text())
+
+# An example cohort: five samples against one reference, each with a known difference
+from plasmid_surgery.cohort import write_cohort  # noqa: E402
+from tests.scenarios.cohort_example import build_runs  # noqa: E402
+
+with tempfile.TemporaryDirectory(prefix="plasmid-surgery-cohort-") as tmp:
+    root = Path(tmp)
+    runs = build_runs(root)
+    page = write_cohort(runs, root / "cohort.html", title="plasmid-surgery: example cohort").read_text()
+    with mkdocs_gen_files.open("example-cohort/cohort.html", "w") as fh:
+        fh.write(page)
+    for run in runs:   # the per-sample reports the cohort links to
+        sample_page = (run / "report.html").read_text().replace(str(run), f"results/{run.name}")
+        with mkdocs_gen_files.open(f"example-cohort/results/{run.name}/report.html", "w") as fh:
+            fh.write(sample_page)

@@ -75,7 +75,7 @@ nav:
   - Guides:
       - Assessing a reconstruction, end to end: guides/end-to-end.md
       - Many samples: guides/many-samples.md
-      - The HTML report: guides/report.md
+      - The HTML reports: guides/report.md
   - Behaviour report:
       - behaviour/index.md
       - Circular references: behaviour/origin.md
@@ -97,3 +97,4 @@ nav:
           - plasmid_surgery.parsers: reference/api/parsers.md
           - plasmid_surgery.refs: reference/api/refs.md
           - plasmid_surgery.report: reference/api/report.md
+          - plasmid_surgery.cohort: reference/api/cohort.md
