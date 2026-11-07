@@ -434,6 +434,61 @@ aren't on the reference itself.</p>
 """
 
 
+# --- choosing a reference ---
+
+LIST_FIELDS = ['ref_id', 'ref_length', 'runs_assessed', 'rank_1', 'in_top', 'mean_score', 'mean_ref_fraction_covered']
+
+
+def reference_table(run_dirs, top: int = 3) -> tuple[list[dict], int]:
+    """
+    How each reference fared across runs, to choose one for the cohort report. Reads only each run's
+    top-level assessment.tsv.
+
+    :param top: count the runs ranking a reference this high or better ('in_top')
+    :return: (rows, number of runs read): one row per reference (LIST_FIELDS), the most often in the top first, then by mean score.
+             'mean_score' is over all runs (a run that didn't assess the reference counts as 0);
+             'mean_ref_fraction_covered' is over the runs that did. 'ref_length' is the most common.
+    """
+    runs = 0
+    stats = {}
+    for d in run_dirs:
+        d = Path(d)
+        try:
+            rows = report.read_tsv(d / f"{report.find_prefix(d)}assessment.tsv")
+        except FileNotFoundError as e:
+            logger.warning(f"Skipped {d}: {e}")
+            continue
+        runs += 1
+        for row in rows:
+            s = stats.setdefault(row['ref_id'], {'lengths': Counter(), 'n': 0, 'rank_1': 0, 'in_top': 0,
+                                                 'score': 0.0, 'covered': 0.0})
+            rank = int(row['rank'])
+            s['lengths'][row['ref_length']] += 1
+            s['n'] += 1
+            s['rank_1'] += rank == 1
+            s['in_top'] += rank <= top
+            s['score'] += float(row['score'])
+            s['covered'] += float(row['ref_fraction_covered'])
+    if not runs:
+        raise CohortError("No plasmid-surgery runs found")
+    table = [{'ref_id': ref_id, 'ref_length': s['lengths'].most_common(1)[0][0],
+              'runs_assessed': s['n'], 'rank_1': s['rank_1'], 'in_top': s['in_top'],
+              'mean_score': round(s['score'] / runs, 4), 'mean_ref_fraction_covered': round(s['covered'] / s['n'], 4)}
+             for ref_id, s in stats.items()]
+    table.sort(key=lambda r: (-r['in_top'], -r['mean_score'], r['ref_id']))
+    return table, runs
+
+
+def write_reference_table(run_dirs, out, top: int = 3) -> None:
+    """Write reference_table() as a TSV to ``out`` (runs_assessed as 'n/total', in_top as 'in_top_<top>')."""
+    table, runs = reference_table(run_dirs, top)
+    header = [f'in_top_{top}' if f == 'in_top' else f for f in LIST_FIELDS]
+    out.write('\t'.join(header) + '\n')
+    for r in table:
+        values = {**r, 'runs_assessed': f"{r['runs_assessed']}/{runs}"}
+        out.write('\t'.join(str(values[f]) for f in LIST_FIELDS) + '\n')
+
+
 def write_cohort(run_dirs, output, ref_id=None, title=None) -> Path:
     cohort = gather([Path(d) for d in run_dirs], ref_id)
     output = Path(output)
@@ -449,8 +504,13 @@ def build_parser() -> argparse.ArgumentParser:
         description="Draw a self-contained HTML report of many samples' plasmid-surgery results against one shared "
                     "reference: coverage strips, and the reference's genes by sample.")
     parser.add_argument('runs', nargs='+', help="plasmid-surgery output directories (e.g. one per sample)")
-    parser.add_argument('--ref', help="The reference to compare against (default: the one assessed in the most runs)")
+    parser.add_argument('--ref', help="The reference to compare against (default: the one assessed in the most runs; see --list-refs to choose)")
     parser.add_argument('-o', '--output', default='cohort.html', help="Report path (default: cohort.html)")
+    parser.add_argument('--list-refs', action='store_true',
+                        help="Instead of drawing the report, print a TSV of how each reference fared across the runs "
+                             "(how many runs assessed it, ranked it first, ranked it in the top --top; mean score and "
+                             "coverage), to choose one for --ref")
+    parser.add_argument('--top', type=int, default=3, help="With --list-refs: the rank cutoff for in_top_N (default: 3)")
     parser.add_argument('--title', help="Report title (default: 'plasmid-surgery cohort: <ref_id>')")
     parser.add_argument('--log-level', default='info', help="Log level (default: 'info')")
     parser.add_argument('--version', action='version', version=f"%(prog)s {__version__}")
@@ -462,6 +522,9 @@ def main(argv=None) -> int:
     from plasmid_surgery.__main__ import setup_logging
     setup_logging(args.log_level)
     try:
+        if args.list_refs:
+            write_reference_table(args.runs, sys.stdout, args.top)
+            return 0
         path = write_cohort(args.runs, args.output, args.ref, args.title)
     except CohortError as e:
         logger.error(str(e))

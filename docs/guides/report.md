@@ -72,6 +72,30 @@ It takes plasmid-surgery output directories (typically one per sample) and uses 
 against the reference given by `--ref`, or by default the reference assessed in the most runs. A run
 without that reference, or with a copy of a different length, is skipped, and listed at the top.
 
+To choose the reference, `--list-refs` prints, instead of drawing the report, how each reference fared
+across the runs (from each run's top-level `assessment.tsv`), the most often near the top first:
+
+```bash
+plasmid-surgery-cohort results/*/ --list-refs | column -t
+```
+
+```
+ref_id      ref_length  runs_assessed  rank_1  in_top_3  mean_score  mean_ref_fraction_covered
+CP012345.1  61250       12/12          9       12        0.912       0.947
+CP067890.1  58731       10/12          3       9         0.701       0.903
+```
+
+| Column | Meaning |
+|---|---|
+| `runs_assessed` | Runs that assessed the reference, of all runs |
+| `rank_1`, `in_top_N` | Runs ranking it first, or in their top N (`--top`, default 3) |
+| `mean_score` | Its mean score over all runs, a run that didn't assess it counting as 0 |
+| `mean_ref_fraction_covered` | Its mean coverage over the runs that assessed it |
+
+A reference near the top on both `in_top_N` and `mean_score` suits most of the runs. Runs found
+their references separately (`--db-sketch`) may not all have assessed it: re-run those with
+`--ref-plasmid` and that reference to include them.
+
 **[Open the example cohort](../example-cohort/cohort.html)**: five simulated samples against one
 reference: complete, with a contig binned as chromosome, with a segment missing from the assembly,
 with a deletion and an insertion, and with an extra gene.

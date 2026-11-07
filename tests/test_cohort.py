@@ -94,3 +94,56 @@ def test_ref_choice_and_skipping(runs, tmp_path):
     c = cohort.gather([*runs, odd])
     assert len(c['samples']) == 5 and any('29,401' in reason for _, reason in c['skipped'])
     assert cohort.main([*map(str, runs), '--ref', 'pREF1', '-o', str(tmp_path / 'c.html'), '--log-level', 'error']) == 0
+
+
+def write_assessment(d, rows, prefix=''):
+    d.mkdir(parents=True)
+    lines = ['sample_id\tref_id\trank\tscore\tref_length\tref_fraction_covered']
+    lines += ['\t'.join(map(str, (d.name, *r))) for r in rows]
+    (d / f'{prefix}assessment.tsv').write_text('\n'.join(lines) + '\n')
+
+
+@pytest.fixture
+def assessments(tmp_path):
+    #                         ref_id, rank, score, ref_length, ref_fraction_covered
+    write_assessment(tmp_path / 's1', [('A', 1, 0.9, 5000, 0.95), ('B', 2, 0.8, 6000, 0.9)])
+    write_assessment(tmp_path / 's2', [('B', 1, 0.85, 6000, 0.9), ('A', 2, 0.7, 5000, 0.8), ('C', 3, 0.5, 7000, 0.6)],
+                     prefix='s2_')
+    write_assessment(tmp_path / 's3', [('A', 1, 0.88, 5000, 0.93), ('C', 4, 0.1, 7000, 0.2)])
+    (tmp_path / 'not_a_run').mkdir()
+    return tmp_path
+
+
+def test_reference_table(assessments):
+    dirs = sorted(assessments.iterdir())
+    table, runs = cohort.reference_table(dirs)
+    assert runs == 3
+    assert [r['ref_id'] for r in table] == ['A', 'B', 'C']
+    a, b, c = table
+    assert (a['runs_assessed'], a['rank_1'], a['in_top'], a['ref_length']) == (3, 2, 3, '5000')
+    assert a['mean_score'] == round((0.9 + 0.7 + 0.88) / 3, 4)
+    assert a['mean_ref_fraction_covered'] == round((0.95 + 0.8 + 0.93) / 3, 4)
+    assert b['mean_score'] == round((0.8 + 0.85) / 3, 4)              # unassessed runs count as 0
+    assert b['mean_ref_fraction_covered'] == 0.9                     # only over runs that assessed it
+    assert (c['runs_assessed'], c['in_top']) == (2, 1)               # rank 4 is outside the top 3
+    assert cohort.reference_table(dirs, top=4)[0][2]['in_top'] == 2
+
+
+def test_list_refs_cli(assessments, capsys):
+    dirs = [str(p) for p in sorted(assessments.iterdir())]
+    assert cohort.main(dirs + ['--list-refs', '--top', '2', '--log-level', 'error']) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == 'ref_id\tref_length\truns_assessed\trank_1\tin_top_2\tmean_score\tmean_ref_fraction_covered'
+    assert lines[1].split('\t')[:5] == ['A', '5000', '3/3', '2', '3']
+    assert lines[3].split('\t')[:5] == ['C', '7000', '2/3', '0', '0']
+    assert not (assessments / 'cohort.html').exists()
+
+
+def test_list_refs_no_runs(tmp_path):
+    assert cohort.main([str(tmp_path), '--list-refs', '--log-level', 'error']) == 1
+
+
+@needs_minimap2
+def test_reference_table_on_real_runs(runs):
+    table, n = cohort.reference_table(runs)
+    assert n == len(runs) and table[0]['ref_id'] == cohort.gather(runs)['ref_id']

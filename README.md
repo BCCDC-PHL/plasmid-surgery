@@ -46,7 +46,7 @@ plasmid-surgery \
 Each reference's outputs go to `<outdir>/<ref_id>/`, and `<outdir>/assessment.tsv` has one row per
 reference, ranked. Add `--report` for a self-contained `report.html` with every reference's results on
 linear maps (or run `plasmid-surgery-plot <outdir>` afterwards). `plasmid-surgery-cohort results/*/`
-compares many samples against one shared reference in one page (coverage strips; genes by sample).
+compares many samples against one shared reference in one page (coverage strips; genes by sample); its `--list-refs` shows which references rank well across the runs.
 
 Optionally, with the full assembly and the reconstruction tool's other bins (`--assembly`,
 `--bins`), and with gene annotations of the reference and the sample (`--ref-features`,
