@@ -98,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--ref-features', nargs='+', metavar='FILE', help="Feature (gene) annotations on the ref plasmid: hAMRonization TSV, GFF3 or BED. Reports how completely the reconstruction (and assembly) contains each (ref_features.tsv)")
     parser.add_argument('--features', nargs='+', metavar='FILE', help="Feature (gene) annotations on the sample's assembly or reconstruction contigs: hAMRonization TSV, GFF3 or BED. Reports, for features on the reconstruction (and with --assembly, on any contig aligning to the ref), where each is and whether it's on the ref (features.tsv)")
     parser.add_argument('--min-feature-coverage', type=float, default=features.DEFAULT_MIN_FEATURE_COVERAGE, help=f"Minimum fraction of a feature covered to call it present / on the ref (default: {features.DEFAULT_MIN_FEATURE_COVERAGE})")
+    parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for minimap2 (alignment to each reference) and, with --db-sketch, mash (default: 1)")
     parser.add_argument('-o', '--outdir', default='.', help="Output directory (default: current directory)")
     parser.add_argument('-p', '--prefix', help="Prefix for output filenames, e.g. '-p sample1' gives 'sample1_assessment.tsv' (default: no prefix)")
     parser.add_argument('--tmpdir', help="Directory for intermediate minimap2 files, kept after the run. If not supplied, a temporary directory is used and removed afterwards.")
@@ -368,7 +369,8 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
 
     logger.info(f"Aligning {len(plasmid_reconstruction_contigs)} reconstruction contig(s) vs. ref plasmid: {ref_plasmid_id}")
     try:
-        recon_alignments = alignment.align_contigs(plasmid_reconstruction_contigs, ref_plasmid, tmpdir)
+        recon_alignments = alignment.align_contigs(plasmid_reconstruction_contigs, ref_plasmid, tmpdir,
+                                                   label='reconstruction', threads=args.threads)
     except alignment.AlignmentError:
         raise
     aligned_contigs = recon_alignments['placements']
@@ -393,7 +395,7 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
             context_result = context.assess_assembly_context(
                 plasmid_reconstruction_contigs, recon_alignments, assembly_contigs, ref_plasmid, tmpdir,
                 bins=bins, min_missed_fraction=args.min_missed_fraction,
-                min_deletion_length=args.min_indel_length,
+                min_deletion_length=args.min_indel_length, threads=args.threads,
             )
         except alignment.AlignmentError as e:
             logger.error(str(e))

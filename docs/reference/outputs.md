@@ -44,7 +44,10 @@ The top-level `assessment.tsv` has the same columns as each reference's, and is 
 | `features.tsv`       | With `--features` only: each feature on the reconstruction's contigs (and with `--assembly`, on any contig aligning to the ref), with its contig's classification and bin, and whether the feature itself is on the ref. |
 
 Intermediate alignment files go to a temporary directory that's removed after the run, unless
-`--tmpdir` is given, in which case they're kept there.
+`--tmpdir` is given, in which case they're kept there: one subdirectory per reference, holding
+`ref.fa` and `ref_rotated.fa` (rotated by half its length, see [A circular reference](../concepts/alignment.md#a-circular-reference)),
+and for each set of contigs (`reconstruction`, and with `--assembly`, the other `assembly` contigs) the
+FASTA and minimap2's SAM against each, e.g. `reconstruction_vs_ref.sam`.
 
 ## `assessment.tsv`
 

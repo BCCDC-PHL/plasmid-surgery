@@ -542,3 +542,39 @@ def test_sample_features_without_assembly(tmp_path, sim):
     assert all(r['bin'] == 'NA' and r['contig_classification'] == 'in_reconstruction' for r in rows.values())
     [m] = read_tsv(tmp_path / 'out' / 'ref' / 'assessment.tsv')
     assert m['num_ref_features'] == 'NA'
+
+
+# --- one minimap2 call per contig set ---
+
+ALIGNMENT_KEYS = ('contig_id', 'ref_start', 'ref_end', 'is_reverse', 'is_supplementary', 'is_secondary',
+                  'mapq', 'cigar_str', 'query_alignment_sequence', 'used_rotated_ref', 'spans_origin')
+
+
+def test_batched_alignment_matches_per_contig(tmp_path, sim):
+    from plasmid_surgery import alignment
+    ref = {'seq_id': 'ref', 'seq': sim['ref']}
+    contigs = [{'seq_id': cid, 'seq': seq} for cid, seq in sim['contigs']]
+    batched = alignment.align_contigs_vs_circular_ref(contigs, ref, tmp_path / 'batched')
+    for i, contig in enumerate(contigs):
+        single = alignment.align_contigs_vs_circular_ref([contig], ref, tmp_path / f'single_{i}')[0]
+        assert [tuple(a.get(k) for k in ALIGNMENT_KEYS) for a in batched[i]] == \
+               [tuple(a.get(k) for k in ALIGNMENT_KEYS) for a in single]
+
+
+def test_batched_alignment_duplicate_contig_ids(tmp_path, sim):
+    from plasmid_surgery import alignment
+    ref = {'seq_id': 'ref', 'seq': sim['ref']}
+    (_, seq0), (_, seq1) = sim['contigs'][:2]
+    contigs = [{'seq_id': 'dup', 'seq': seq0}, {'seq_id': 'dup', 'seq': seq1}]
+    result = alignment.align_contigs_vs_circular_ref(contigs, ref, tmp_path)
+    assert [{a['contig_id'] for a in alns} for alns in result] == [{'dup'}, {'dup'}]
+    # each contig gets its own alignments
+    assert result[0][0]['query_full_length'] == len(seq0)
+    assert result[1][0]['query_full_length'] == len(seq1)
+
+
+def test_batched_alignment_no_contigs(tmp_path):
+    from plasmid_surgery import alignment
+    assert alignment.align_contigs([], {'seq_id': 'ref', 'seq': 'ACGT' * 100}, tmp_path) == \
+        {'placements': [], 'alternatives': [], 'failed': []}
+    assert not any(tmp_path.iterdir())   # no minimap2 call

@@ -359,7 +359,6 @@ def add_database_arguments(parser) -> None:
                         help=f"Candidates to confirm with minimap2: the top N by estimated containment, and the top N by "
                              f"mash distance (default: {DEFAULT_NUM_CANDIDATES})")
     parser.add_argument('--top', type=int, default=DEFAULT_TOP, help=f"Number of best references to keep (default: {DEFAULT_TOP})")
-    parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for mash and minimap2 (default: 1)")
 
 
 def write_candidates(path, ranked: list[dict], top: int) -> None:
@@ -383,6 +382,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--assembly', help="Full assembly the reconstruction was made from. Ranks by the assembly's coverage "
                                            "of each candidate rather than the reconstruction's, so a reconstruction that's a "
                                            "fragment of a larger plasmid doesn't favour smaller relatives")
+    parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for mash and minimap2 (default: 1)")
     parser.add_argument('-o', '--outdir', default='.', help="Output directory (default: current directory)")
     parser.add_argument('-p', '--prefix', help="Prefix for output filenames (default: no prefix)")
     parser.add_argument('--tmpdir', help="Directory for intermediate files, kept after the run (default: a temporary "

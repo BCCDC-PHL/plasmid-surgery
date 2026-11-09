@@ -2,7 +2,7 @@
 Assess how well a plasmid reconstruction matches a reference plasmid.
 
 All functions take aligned segments as produced by
-alignment.align_contig_vs_circular_ref: ref coordinates are relative to the
+alignment.align_contigs_vs_circular_ref: ref coordinates are relative to the
 original (circular) reference, ref_start is in [0, ref_length) and ref_end may
 exceed ref_length when an alignment wraps around the origin.
 """
