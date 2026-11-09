@@ -368,7 +368,8 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
 
     logger.info(f"Aligning {len(plasmid_reconstruction_contigs)} reconstruction contig(s) vs. ref plasmid: {ref_plasmid_id}")
     try:
-        recon_alignments = alignment.align_contigs(plasmid_reconstruction_contigs, ref_plasmid, tmpdir)
+        recon_alignments = alignment.align_contigs(plasmid_reconstruction_contigs, ref_plasmid, tmpdir,
+                                                   label='reconstruction', threads=args.threads)
     except alignment.AlignmentError:
         raise
     aligned_contigs = recon_alignments['placements']
@@ -393,7 +394,7 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
             context_result = context.assess_assembly_context(
                 plasmid_reconstruction_contigs, recon_alignments, assembly_contigs, ref_plasmid, tmpdir,
                 bins=bins, min_missed_fraction=args.min_missed_fraction,
-                min_deletion_length=args.min_indel_length,
+                min_deletion_length=args.min_indel_length, threads=args.threads,
             )
         except alignment.AlignmentError as e:
             logger.error(str(e))

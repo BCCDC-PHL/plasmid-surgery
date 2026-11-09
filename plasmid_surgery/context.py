@@ -168,7 +168,8 @@ def length_weighted_mean_depth(contigs: list[dict]):
 def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_alignments: dict,
                             assembly_contigs: list[dict], ref: dict, tmpdir,
                             bins: dict = None, min_missed_fraction: float = DEFAULT_MIN_MISSED_FRACTION,
-                            min_deletion_length: int = assessment.DEFAULT_MIN_UNCOVERED_DELETION) -> dict:
+                            min_deletion_length: int = assessment.DEFAULT_MIN_UNCOVERED_DELETION,
+                            threads: int = 1) -> dict:
     """
     Classify the assembly contigs that align to the reference, and summarize how
     much of the reference the assembly could have provided beyond the
@@ -182,6 +183,7 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
     :param bins: Optional sequence key -> bin label (see bin_labels)
     :param min_missed_fraction: Minimum fraction of a contig aligned to the ref
                                 (at a single location) to call it 'missed'
+    :param threads: minimap2 threads
     :return: dict with 'metrics' (CONTEXT_METRICS_FIELDNAMES), 'contigs' (rows
              for CONTIG_SOURCES_FIELDNAMES), 'missed_contigs' (contig dicts),
              'placements' (placement alignments of all assembly contigs aligning
@@ -200,7 +202,7 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
 
     other_contigs = [c for c in assembly_contigs if sequence_key(c['seq']) not in reconstruction_keys]
     logger.info(f"Aligning {len(other_contigs)} other assembly contig(s) vs. ref plasmid: {ref['seq_id']}")
-    other = alignment.align_contigs(other_contigs, ref, tmpdir)
+    other = alignment.align_contigs(other_contigs, ref, tmpdir, label='assembly', threads=threads)
 
     contigs_by_id = {c['seq_id']: c for c in reconstruction_contigs + other_contigs}
     reconstruction_depth = length_weighted_mean_depth(reconstruction_contigs)

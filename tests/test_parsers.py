@@ -58,3 +58,13 @@ def test_parse_cigar_invalid():
 ])
 def test_calculate_percent_identity(cigartuples, expected):
     assert parsers.calculate_percent_identity(cigartuples) == expected
+
+
+def test_parse_fasta_long_multiline_sequence(tmp_path):
+    # e.g. a 5 Mb chromosome in 60-character lines (was quadratic)
+    lines = ['ACGTACGTAC' * 6] * 100_000
+    path = tmp_path / "chrom.fa"
+    path.write_text(">chrom\n" + "\n".join(lines) + "\n>p1\nGG\n\n")
+    seqs = parsers.parse_fasta(path)
+    assert [s['length'] for s in seqs] == [6_000_000, 2]
+    assert seqs[1]['seq'] == 'GG'

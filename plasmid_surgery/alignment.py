@@ -47,34 +47,54 @@ def aligned_query_sequence(aln: dict, contig_seq: str) -> str:
     return oriented[start:start + aligned]
 
 
-def align_contig_vs_ref(contig: dict, ref: dict, tmpdir: Path) -> list[dict]:
-    """
-    Align contig vs ref using minimap2
+def write_fasta(path, records: list[tuple[str, str]]) -> None:
+    with open(path, 'w') as f:
+        for seq_id, seq in records:
+            f.write(f">{seq_id}\n{seq}\n")
 
-    :param contig: Contig, as parsed by parsers.parse_fasta
+
+def align_contigs_vs_ref(contigs: list[dict], ref: dict, tmpdir: Path, label: str = 'contigs',
+                         threads: int = 1) -> list[list[dict]]:
+    """
+    Align contigs vs ref using minimap2, in a single call.
+
+    minimap2 aligns each query independently, so this gives the same alignments
+    as one call per contig. Queries keep their contig IDs: minimap2 breaks ties
+    between equally good placements (e.g. repeat copies, MAPQ 0) with a hash of
+    the query name, so renaming them would change which copy is primary. A
+    repeated ID is made unique for the call ('<id>__<index>'); `contig_id` in the
+    results is always the contig's own ID.
+
+    :param contigs: Contigs, as parsed by parsers.parse_fasta
     :param ref: Reference, as parsed by parsers.parse_fasta
     :param tmpdir: Directory for intermediate files
-    :return: Aligned segments, as parsed by parsers.parse_sam
+    :param label: Name for this set of contigs' intermediate files (<label>.fa, <label>_vs_ref[_rotated].sam)
+    :param threads: minimap2 threads
+    :return: For each contig (in input order), its aligned segments, as parsed by parsers.parse_sam
     :raises AlignmentError: if minimap2 is missing or fails
     """
+    if not contigs:
+        return []
     os.makedirs(tmpdir, exist_ok=True)
 
-    contig_id = contig['seq_id']
-    ref_id = ref['seq_id']
-    contig_path = os.path.join(tmpdir, f"{contig_id}.fa")
+    query_names = []
+    index_by_name = {}
+    for i, c in enumerate(contigs):
+        name = c['seq_id']
+        while name in index_by_name:
+            name = f"{name}__{i}"
+        index_by_name[name] = i
+        query_names.append(name)
+    contigs_path = os.path.join(tmpdir, f"{label}.fa")
+    write_fasta(contigs_path, [(name, c['seq']) for name, c in zip(query_names, contigs)])
 
-    with open(contig_path, 'w') as f:
-        f.write(f">{contig['seq_id']}\n")
-        f.write(f"{contig['seq']}\n")
+    # Always (re)write the ref, so a different ref left over in tmpdir from a
+    # previous run is never reused.
+    ref_name = 'ref_rotated' if 'rotation' in ref else 'ref'
+    ref_path = os.path.join(tmpdir, f"{ref_name}.fa")
+    write_fasta(ref_path, [(ref['seq_id'], ref['seq'])])
 
-    # Always (re)write the ref, so a different ref with the same ID
-    # left over in tmpdir from a previous run is never reused.
-    ref_path = os.path.join(tmpdir, f"{ref_id}.fa")
-    with open(ref_path, 'w') as f:
-        f.write(f">{ref['seq_id']}\n")
-        f.write(f"{ref['seq']}\n")
-
-    alignment_path = os.path.join(tmpdir, f"{contig_id}_vs_{ref_id}.sam")
+    alignment_path = os.path.join(tmpdir, f"{label}_vs_{ref_name}.sam")
 
     minimap2_cmd = [
         'minimap2',
@@ -86,9 +106,10 @@ def align_contig_vs_ref(contig: dict, ref: dict, tmpdir: Path) -> list[dict]:
         '-N', str(MAX_SECONDARY_ALIGNMENTS),
         '-p', str(MIN_SECONDARY_SCORE_RATIO_MINIMAP2),
         '--eqx',
+        '-t', str(threads),
         '-o', alignment_path,
         ref_path,
-        contig_path,
+        contigs_path,
     ]
 
     try:
@@ -97,19 +118,24 @@ def align_contig_vs_ref(contig: dict, ref: dict, tmpdir: Path) -> list[dict]:
         raise AlignmentError("minimap2 not found on PATH") from e
     except subprocess.CalledProcessError as e:
         raise AlignmentError(
-            f"minimap2 failed (exit code {e.returncode}) aligning {contig_id} vs. {ref_id}:\n{e.stderr}"
+            f"minimap2 failed (exit code {e.returncode}) aligning {label} vs. {ref['seq_id']}:\n{e.stderr}"
         ) from e
 
-    aligned_segments = parsers.parse_sam(alignment_path)
-    for aligned_segment in aligned_segments:
+    by_contig = [[] for _ in contigs]
+    ref_length = len(ref['seq'])
+    for aligned_segment in parsers.parse_sam(alignment_path):
+        i = index_by_name[aligned_segment['contig_id']]
+        contig = contigs[i]
+        aligned_segment['contig_id'] = contig['seq_id']
         aligned_segment['query_full_length'] = len(contig['seq'])
-        aligned_segment['ref_full_length'] = len(ref['seq'])
+        aligned_segment['ref_full_length'] = ref_length
         if aligned_segment.get('is_mapped') and aligned_segment['query_alignment_sequence'] is None:
             # minimap2 omits SEQ for secondary alignments; recover it from the contig
             aligned_segment['query_alignment_sequence'] = aligned_query_sequence(aligned_segment, contig['seq'])
             aligned_segment['query_alignment_length'] = len(aligned_segment['query_alignment_sequence'])
+        by_contig[i].append(aligned_segment)
 
-    return aligned_segments
+    return by_contig
 
 
 REF_ALIGNED_OPS = ('alignment_match', 'sequence_match', 'sequence_mismatch')
@@ -122,12 +148,13 @@ def rotate_ref(ref: dict, shift: int) -> dict:
 
     :param ref: Reference, as parsed by parsers.parse_fasta
     :param shift: Number of bases to rotate by
-    :return: Rotated reference dict (with a distinct seq_id)
+    :return: Rotated reference dict (with a distinct seq_id, and 'rotation' set to shift)
     """
     seq = ref['seq']
     return {
         'seq_id': f"{ref['seq_id']}__rotated_{shift}",
         'seq': seq[shift:] + seq[:shift],
+        'rotation': shift,
     }
 
 
@@ -151,35 +178,15 @@ def total_aligned_query_bases(aligned_segments: list[dict]) -> int:
     return sum(a['query_alignment_length'] for a in aligned_segments if a.get('is_mapped'))
 
 
-def align_contig_vs_circular_ref(contig: dict, ref: dict, tmpdir: Path) -> list[dict]:
+def choose_circular_alignment(original: list[dict], rotated: list[dict], ref_length: int) -> list[dict]:
     """
-    Align a contig against a circular reference.
+    One contig's alignments against a circular reference: of its alignments
+    against the reference and against a copy rotated by half its length (already
+    converted back with unrotate_alignment), keep those covering more of the
+    contig in fewer segments, preferring the unrotated alignment on ties.
 
-    minimap2 treats the reference as linear, so a contig spanning the
-    reference origin is split into primary + supplementary alignments, and
-    bases near the origin may be left unaligned. To avoid that, the contig is
-    aligned against both the reference and a copy rotated by half its length,
-    and the result covering more of the contig in fewer segments is kept
-    (preferring the unrotated alignment on ties). Coordinates are always
-    reported relative to the original reference; an alignment with
-    ref_end > ref length wraps around the origin.
-
-    The reference is not doubled, because a doubled reference would make every
-    alignment ambiguous (MAPQ 0).
-
-    :param contig: Contig, as parsed by parsers.parse_fasta
-    :param ref: Circular reference, as parsed by parsers.parse_fasta
-    :param tmpdir: Directory for intermediate files
-    :return: Aligned segments, with 'spans_origin' and 'used_rotated_ref' set
+    Sets 'used_rotated_ref' and 'spans_origin' on the chosen alignments.
     """
-    ref_length = len(ref['seq'])
-    shift = ref_length // 2
-
-    original = align_contig_vs_ref(contig, ref, tmpdir)
-    rotated = align_contig_vs_ref(contig, rotate_ref(ref, shift), tmpdir)
-    for aln in rotated:
-        unrotate_alignment(aln, shift, ref_length, ref['seq_id'])
-
     def score(segments):
         # Primary + supplementary only: secondaries are alternative placements
         mapped = [a for a in segments if a.get('is_mapped') and not a.get('is_secondary')]
@@ -187,14 +194,51 @@ def align_contig_vs_circular_ref(contig: dict, ref: dict, tmpdir: Path) -> list[
 
     use_rotated = score(rotated) > score(original)
     chosen = rotated if use_rotated else original
-    if use_rotated:
-        logger.info(f"Contig {contig['seq_id']} aligns better across the ref origin; using rotated-ref alignment")
+    if use_rotated and chosen:
+        logger.info(f"Contig {chosen[0]['contig_id']} aligns better across the ref origin; using rotated-ref alignment")
 
     for aln in chosen:
         aln['used_rotated_ref'] = use_rotated
         aln['spans_origin'] = bool(aln.get('is_mapped')) and aln['ref_end'] > ref_length
 
     return chosen
+
+
+def align_contigs_vs_circular_ref(contigs: list[dict], ref: dict, tmpdir: Path, label: str = 'contigs',
+                                  threads: int = 1) -> list[list[dict]]:
+    """
+    Align contigs against a circular reference.
+
+    minimap2 treats the reference as linear, so a contig spanning the
+    reference origin is split into primary + supplementary alignments, and
+    bases near the origin may be left unaligned. To avoid that, the contigs are
+    aligned against both the reference and a copy rotated by half its length
+    (one minimap2 call each), and for each contig the result covering more of
+    it in fewer segments is kept (see choose_circular_alignment). Coordinates
+    are always reported relative to the original reference; an alignment with
+    ref_end > ref length wraps around the origin.
+
+    The reference is not doubled, because a doubled reference would make every
+    alignment ambiguous (MAPQ 0).
+
+    :param contigs: Contigs, as parsed by parsers.parse_fasta
+    :param ref: Circular reference, as parsed by parsers.parse_fasta
+    :param tmpdir: Directory for intermediate files
+    :param label: Name for this set of contigs' intermediate files
+    :param threads: minimap2 threads
+    :return: For each contig (in input order), its aligned segments, with
+             'spans_origin' and 'used_rotated_ref' set
+    """
+    ref_length = len(ref['seq'])
+    shift = ref_length // 2
+
+    original = align_contigs_vs_ref(contigs, ref, tmpdir, label, threads)
+    rotated = align_contigs_vs_ref(contigs, rotate_ref(ref, shift), tmpdir, label, threads)
+    for alns in rotated:
+        for aln in alns:
+            unrotate_alignment(aln, shift, ref_length, ref['seq_id'])
+
+    return [choose_circular_alignment(o, r, ref_length) for o, r in zip(original, rotated)]
 
 
 def select_alternative_placements(aligned_segments: list[dict], min_score_ratio: float = 0.95) -> tuple[list[dict], list[dict], list[dict]]:
@@ -234,7 +278,7 @@ def select_alternative_placements(aligned_segments: list[dict], min_score_ratio:
     return placement, alternatives, rejected
 
 
-def align_contigs(contigs: list[dict], ref: dict, tmpdir: Path) -> dict:
+def align_contigs(contigs: list[dict], ref: dict, tmpdir: Path, label: str = 'contigs', threads: int = 1) -> dict:
     """
     Align contigs against a circular reference, apply alignment QC, and
     separate each contig's placement from its alternative placements.
@@ -242,6 +286,8 @@ def align_contigs(contigs: list[dict], ref: dict, tmpdir: Path) -> dict:
     :param contigs: Contigs, as parsed by parsers.parse_fasta
     :param ref: Circular reference, as parsed by parsers.parse_fasta
     :param tmpdir: Directory for intermediate files
+    :param label: Name for this set of contigs' intermediate files
+    :param threads: minimap2 threads
     :return: dict with lists of aligned segments:
              'placements' (primary + supplementary, passed QC),
              'alternatives' (secondaries that are alternative placements, passed QC),
@@ -251,10 +297,10 @@ def align_contigs(contigs: list[dict], ref: dict, tmpdir: Path) -> dict:
     placements = []
     alternatives = []
     failed = []
-    for contig in contigs:
+    logger.debug(f"Aligning {len(contigs)} contig(s) ({label}) vs. ref: {ref['seq_id']}")
+    all_aligned_segments = align_contigs_vs_circular_ref(contigs, ref, tmpdir, label, threads)
+    for contig, aligned_segments in zip(contigs, all_aligned_segments):
         contig_id = contig['seq_id']
-        logger.debug(f"Aligning contig: {contig_id} vs. ref: {ref['seq_id']}")
-        aligned_segments = align_contig_vs_circular_ref(contig, ref, tmpdir)
         if not aligned_segments:
             logger.debug(f"Zero alignments for contig: {contig_id} vs. ref: {ref['seq_id']}")
             continue

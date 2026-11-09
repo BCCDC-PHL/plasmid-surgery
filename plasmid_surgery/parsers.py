@@ -17,26 +17,30 @@ def parse_fasta(fasta_path: Path):
     :return: The parsed fasta file. List of dicts with keys: 'seq_id', 'description', 'seq', 'length'
     """
     seqs = []
-    seq = {'seq': ""}
+    seq = None
+    lines = []
+
+    def finish():
+        # Join the lines once: appending to a string stored in a dict copies it
+        # every time (quadratic; minutes for a 5 Mb chromosome).
+        if seq is not None:
+            seq['seq'] = ''.join(lines)
+            seq['length'] = len(seq['seq'])
+            seqs.append(seq)
+
     with open(fasta_path, 'r') as f:
         for line in f:
             line = line.strip()
             if line.startswith('>'):
-                if 'seq_id' in seq:
-                    seq['length'] = len(seq['seq'])
-                    seqs.append(seq)
-                seq = {'seq': ""}
+                finish()
+                lines = []
                 defline = line.lstrip('>')
                 seq_id = defline.split()[0]
-                seq['seq_id'] = seq_id
                 description = ' '.join(defline[len(seq_id):].split())
-                seq['description'] = description
-            else:
-                seq['seq'] += line
-
-    if 'seq_id' in seq:
-        seq['length'] = len(seq['seq'])
-        seqs.append(seq)
+                seq = {'seq_id': seq_id, 'description': description}
+            elif seq is not None:
+                lines.append(line)
+    finish()
 
     return seqs
 
