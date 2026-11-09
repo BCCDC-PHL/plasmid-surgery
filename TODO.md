@@ -1,11 +1,11 @@
 # TODO
 
-Open work for plasmid-surgery. Items marked *(PLSDB set)* come from the exploratory validation on 25
-public isolates reassembled from their reads (Nov 2026; `validation/plsdb-reassembly/surgery/FINDINGS.md`,
-not committed): with short reads, mob_recon binning, not assembly, accounts for most of what a
-reconstruction lacks.
+Open work for plasmid-surgery. Items marked *(PLSDB set)* come from exploring 25 public isolates
+reassembled from their reads (Nov 2026; `exploration/plsdb-reassembly/`): with short reads, binning, not
+assembly, accounts for most of what a reconstruction lacks. A formal validation comes later, once the
+tool settles.
 
-## Validation
+## Exploration (PLSDB set)
 
 - [ ] Second pass with near-relative references: the closest PLSDB plasmids that aren't the isolate's
   own (closer to real use, where the database lacks the exact plasmid).
@@ -15,8 +15,6 @@ reconstruction lacks.
   replicons missing from the isolate's PLSDB set).
 - [ ] Full mob_recon vs. TaDReP comparison against a full PLSDB/RefSeq database (cluster).
 - [ ] Validate reference search on the cluster against a full PLSDB/RefSeq sketch.
-- [ ] Test phase: a set disjoint from every exploratory isolate, with questions and criteria fixed
-  before looking at it. Optionally simulated reads (ART / InSilicoSeq) for exact truth.
 
 ## Assessment
 
@@ -69,6 +67,8 @@ reconstruction lacks.
 
 ## Later
 
+- [ ] Validation: a set disjoint from every exploratory isolate, with questions and criteria fixed
+  before looking at it. Optionally simulated reads (ART / InSilicoSeq) for exact truth.
 - [ ] Assembly graph (GFA) input: check whether contigs on either side of a gap are connected by a
   graph path of about the right length (gap bridgeable vs. truly missing).
 - [ ] `mash screen` as an alternative reference screen, if Jaccard-derived estimates prove too noisy
