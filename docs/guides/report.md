@@ -21,7 +21,16 @@ results. It's drawn entirely from the files the run wrote.
 2. **Candidate references**, when they were found in a plasmid database (`--db-sketch`).
 3. **Where each contig is**: a matrix of the reconstruction's contigs against the references, with
    each contig's position on each (or "not aligned"), and with reads, each contig's read depth.
-4. **Maps**: one linear map per reference, in rank order.
+4. **What the references explain**: the reconstruction on its own coordinates, its contigs end to end,
+   with a row per reference showing which parts of each contig align to it, and a row for the parts
+   that align to none of them (red). The maps below are drawn on each reference, where sequence that
+   aligns to no reference has no place; this view shows how much of the reconstruction that is, and
+   where. When the references together explain clearly more than the best one, the reconstruction
+   may combine sequence from more than one plasmid (two plasmids in one bin, or a hybrid contig
+   joining two plasmids). To find what the unexplained parts are, search a plasmid database with a
+   reference's `unaligned.fa` (`plasmid-surgery-refs --plasmid-reconstruction <ref>/unaligned.fa ...`).
+   With `--features`, the sample's genes are shown too, in red if mostly in an unexplained part.
+5. **Maps**: one linear map per reference, in rank order.
 
 ### Reading the maps
 

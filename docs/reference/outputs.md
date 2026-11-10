@@ -131,6 +131,8 @@ One row per alignment, including those that failed the quality filters, and unma
 | `mapq`               | Mapping quality. 0 indicates the contig could equally well align elsewhere (e.g. a repeat such as an IS element) |
 | `contig_length`      | Length of the contig                                                    |
 | `contig_fraction_aligned` | Fraction of the contig covered by any of its alignments that passed QC |
+| `contig_start`, `contig_end` | The part of the contig the alignment covers, in the contig's own orientation (0-based, end exclusive) |
+| `alignment_class`    | `placement`, `alternative` (another placement of a repeat), or `failed` (failed the quality filters, unmapped, or a secondary too weak to be an alternative) |
 | `alignment_start`    | Where on the ref the alignment starts (0-based)                         |
 | `alignment_end`      | Where on the ref the alignment ends (exclusive; < `alignment_start` if it spans the origin) |
 | `alignment_length`   | Length of the alignment                                                 |

@@ -60,6 +60,9 @@ SUMMARY_OUTPUT_FIELDNAMES = [
     'mapq',
     'contig_length',
     'contig_fraction_aligned',
+    'contig_start',
+    'contig_end',
+    'alignment_class',
     'alignment_start',
     'alignment_end',
     'alignment_length',
@@ -199,9 +202,13 @@ def write_fasta(path, seq_id: str, seq: str, bases_per_line: int, description: s
             f.write(f"{line}\n")
 
 
-def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fraction_aligned: dict) -> dict:
+def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fraction_aligned: dict,
+                alignment_class: str = 'placement') -> dict:
     """
     Build a summary output row for one aligned segment.
+
+    :param alignment_class: 'placement', 'alternative' (another placement of a repeat) or 'failed'
+                            (failed the quality filters, unmapped, or a secondary too weak to be an alternative)
     """
     is_mapped = aligned_contig.get('is_mapped', None)
     row = {
@@ -217,12 +224,17 @@ def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fract
         'mapq': aligned_contig.get('mapq', None),
         'contig_length': aligned_contig.get('query_full_length', None),
         'contig_fraction_aligned': contig_fraction_aligned.get(aligned_contig.get('contig_id'), 0.0),
+        'contig_start': 'NA',
+        'contig_end': 'NA',
+        'alignment_class': alignment_class,
         'alignment_start': aligned_contig.get('ref_start', None),
         'alignment_end': aligned_contig.get('ref_end', None),
         'alignment_length': aligned_contig.get('query_alignment_length', None),
         'percent_identity': aligned_contig.get('percent_identity', None),
         'included_in_output': aligned_contig.get('included_in_output', False),
     }
+    if is_mapped and aligned_contig.get('cigar_parsed'):
+        row['contig_start'], row['contig_end'] = assessment.query_interval_on_contig(aligned_contig)
     if is_mapped and row['alignment_end'] > ref_length:
         # Alignment wraps around the origin: alignment_end < alignment_start
         row['alignment_end'] -= ref_length
@@ -502,7 +514,9 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
     assessment.write_unaligned_fasta(outputs['unaligned'], assessment_result['unaligned_regions'], args.output_bases_per_line)
 
     contig_fraction_aligned = assessment_result['contig_fraction_aligned']
-    summary_output = [summary_row(a, ref_plasmid_id, ref_plasmid_length, contig_fraction_aligned) for a in aligned_contigs + alternative_placements + failed_alignments]
+    summary_output = [summary_row(a, ref_plasmid_id, ref_plasmid_length, contig_fraction_aligned, cls)
+                      for cls, group in (('placement', aligned_contigs), ('alternative', alternative_placements),
+                                         ('failed', failed_alignments)) for a in group]
     summary_output_sorted = sorted(summary_output, key=summary_sort_key)
     with open(outputs['summary'], 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=SUMMARY_OUTPUT_FIELDNAMES, delimiter='\t', extrasaction='ignore', quoting=csv.QUOTE_MINIMAL)
