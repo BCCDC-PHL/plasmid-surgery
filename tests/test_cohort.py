@@ -147,3 +147,25 @@ def test_list_refs_no_runs(tmp_path):
 def test_reference_table_on_real_runs(runs):
     table, n = cohort.reference_table(runs)
     assert n == len(runs) and table[0]['ref_id'] == cohort.gather(runs)['ref_id']
+
+
+@needs_minimap2
+def test_report_links_relative_and_embedded(runs, tmp_path):
+    import base64
+    import json
+    import re
+    # The cohort page in a directory beside (not above) the runs: links go up with ../
+    page = tmp_path / 'elsewhere' / 'cohort.html'
+    cohort.write_cohort(runs, page)
+    html = page.read_text()
+    hrefs = set(re.findall(r'<a href="([^"]+report\.html)"', html))
+    assert hrefs and all(not h.startswith('/') for h in hrefs)
+    assert all((page.parent / h).resolve().exists() for h in hrefs)
+    assert 'id="embedded-reports"' not in html
+
+    cohort.write_cohort(runs, page, embed_reports=True)
+    html = page.read_text()
+    store = json.loads(re.search(r'<script type="application/json" id="embedded-reports">(.*?)</script>', html).group(1))
+    assert set(store) == hrefs
+    href = sorted(hrefs)[0]
+    assert base64.b64decode(store[href]) == (page.parent / href).resolve().read_bytes()

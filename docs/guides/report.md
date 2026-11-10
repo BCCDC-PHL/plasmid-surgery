@@ -73,6 +73,11 @@ It takes plasmid-surgery output directories (typically one per sample) and uses 
 against the reference given by `--ref`, or by default the reference assessed in the most runs. A run
 without that reference, or with a copy of a different length, is skipped, and listed at the top.
 
+Sample names link to each sample's own `report.html` by a relative path, so the links keep working if
+the cohort page and the run directories are moved or copied together. To share the cohort page on its
+own, add `--embed-reports`: each sample's report is stored inside the page (adding its size) and opens
+in a new tab from there.
+
 To choose the reference, `--list-refs` prints, instead of drawing the report, how each reference fared
 across the runs (from each run's top-level `assessment.tsv`), the most often near the top first:
 
