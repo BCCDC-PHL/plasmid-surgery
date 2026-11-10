@@ -14,6 +14,11 @@ only, so reads from the chromosome or another plasmid that share sequence with t
 element, a transposon) count too: that sequence is in the sample, just not necessarily on this
 plasmid. Repeats are flagged by the gap types ('repeat' vs. 'unique') rather than here.
 
+Read depth per contig (``contig_depths``) comes from a second alignment, of the reads to the contigs:
+the whole assembly when given (so reads go to their best place in the genome and a contig's depth is
+its own), otherwise the reconstruction. Only primary (and supplementary) alignments count there, as
+for an assembler's own depth estimate: a collapsed repeat's contig gets every copy's reads.
+
 Depth along each reference can be cached (``cache_dir``), keyed by the reads files (path and size),
 the minimap2 preset, the identity threshold and the reference sequence, so assessing many bins of one
 sample against the same references aligns the reads once.
@@ -31,11 +36,13 @@ import subprocess
 import tempfile
 
 from array import array
+from collections import defaultdict
 from itertools import accumulate
 from pathlib import Path
 
 import plasmid_surgery.alignment as alignment
 import plasmid_surgery.assessment as assessment
+import plasmid_surgery.context as context
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +65,18 @@ CACHE_FORMAT_VERSION = 1
 READS_METRICS_FIELDNAMES = [
     'reads_ref_fraction_covered',
     'reads_median_depth',
+    'reads_reconstruction_depth',
+    'reads_min_depth',
     'unique_gap_in_reads_length',
     'assembly_unique_gap_in_reads_length',
+]
+
+CONTIG_DEPTH_FIELDNAMES = [
+    'contig_id',
+    'contig_length',
+    'in_reconstruction',
+    'bin',
+    'reads_depth',
 ]
 
 GAP_SUPPORT_FIELDNAMES = [
@@ -96,8 +113,11 @@ def read_sets(short_reads=None, long_reads=None, long_read_preset=DEFAULT_LONG_R
     return sets
 
 
-def cache_key(read_set: dict, ref_seq: str) -> str:
-    """Cache key for one read set's depth along one reference: reads files by real path and size."""
+def cache_key(read_set: dict, ref_seq: str = None, target: str = None) -> str:
+    """
+    Cache key for one read set's depth along one reference (``ref_seq``), or over a set of contigs
+    (``target``: an identifier of their sequences). Reads files are identified by real path and size.
+    """
     files = []
     for p in read_set['paths']:
         try:
@@ -110,7 +130,8 @@ def cache_key(read_set: dict, ref_seq: str) -> str:
         'preset': read_set['preset'],
         'min_identity': read_set['min_identity'],
         'files': files,
-        'ref': hashlib.sha1(ref_seq.upper().encode()).hexdigest(),
+        'ref': hashlib.sha1(ref_seq.upper().encode()).hexdigest() if ref_seq is not None else None,
+        'target': target,
     }
     return hashlib.sha1(json.dumps(key, sort_keys=True).encode()).hexdigest()
 
@@ -273,6 +294,105 @@ def reads_depth(read_sets_: list[dict], references: list[dict], tmpdir, threads:
     return totals
 
 
+def contigs_key(contigs: list[dict]) -> str:
+    """An identifier of a set of contigs' sequences (order- and orientation-independent)."""
+    keys = sorted(context.sequence_key(c['seq']) for c in contigs)
+    return hashlib.sha1(('contigs:' + ','.join(keys)).encode()).hexdigest()
+
+
+def align_reads_to_contigs(read_set: dict, contigs: list[dict], tmpdir, threads: int = 1) -> dict:
+    """
+    Mean read depth of each contig: primary and supplementary alignments (minimap2 PAF, base-level)
+    at least read_set['min_identity'] identical (matches / alignment length).
+
+    :return: dict of contig sequence key (context.sequence_key) -> mean depth
+    """
+    tmpdir = Path(tmpdir)
+    tmpdir.mkdir(parents=True, exist_ok=True)
+    fasta = tmpdir / f"contigs_for_{read_set['kind']}_reads.fa"
+    alignment.write_fasta(fasta, [(f'c{i}', c['seq']) for i, c in enumerate(contigs)])
+    bases = [0] * len(contigs)
+    cmd = ['minimap2', '-c', '-x', read_set['preset'], '--secondary=no', '-t', str(threads), str(fasta),
+           *read_set['paths']]
+    logger.info(f"Aligning {read_set['kind']} reads vs. {len(contigs)} contig(s) for contig read depth")
+    stderr_path = tmpdir / f"minimap2_{read_set['kind']}_reads_vs_contigs.log"
+    try:
+        with open(stderr_path, 'w') as stderr:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=stderr, text=True)
+    except FileNotFoundError as e:
+        raise alignment.AlignmentError("minimap2 not found on PATH") from e
+    min_identity = read_set['min_identity']
+    for line in proc.stdout:
+        f = line.split('\t', 12)
+        matches, block = int(f[9]), int(f[10])
+        if not block or matches / block < min_identity or '\ttp:A:S' in '\t' + f[12]:
+            continue
+        bases[int(f[5][1:])] += int(f[8]) - int(f[7])
+    if proc.wait() != 0:
+        raise alignment.AlignmentError(f"minimap2 failed (exit code {proc.returncode}) aligning "
+                                       f"{read_set['kind']} reads to contigs:\n{stderr_path.read_text()[-2000:]}")
+    depths = {}
+    for c, b in zip(contigs, bases):
+        depths[context.sequence_key(c['seq'])] = round(b / len(c['seq']), 2) if c['seq'] else 0.0
+    return depths
+
+
+def contig_depths(read_sets_: list[dict], contigs: list[dict], tmpdir, threads: int = 1, cache_dir=None) -> dict:
+    """
+    Mean read depth of each contig, summed over the read sets (cached in ``cache_dir`` by the reads and
+    the contigs' sequences).
+
+    :return: dict of contig sequence key (context.sequence_key) -> mean depth
+    """
+    totals = defaultdict(float)
+    target = contigs_key(contigs)
+    for read_set in read_sets_:
+        depths = None
+        path = Path(cache_dir) / f"{cache_key(read_set, target=target)}.contigs.json" if cache_dir else None
+        if path is not None and path.exists():
+            try:
+                depths = json.loads(path.read_text())
+                logger.info(f"Contig read depth ({read_set['kind']} reads) from the cache ({cache_dir})")
+            except (OSError, ValueError):
+                depths = None
+        if depths is None:
+            missing = [p for p in read_set['paths'] if not os.path.exists(p)]
+            if missing:
+                raise alignment.AlignmentError(f"Reads file(s) not found: {', '.join(missing)}")
+            depths = align_reads_to_contigs(read_set, contigs, tmpdir, threads)
+            if path is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                fd, tmp = tempfile.mkstemp(dir=path.parent, prefix='.tmp_', suffix='.json')
+                with os.fdopen(fd, 'w') as fh:
+                    json.dump(depths, fh)
+                os.replace(tmp, path)
+        for k, d in depths.items():
+            totals[k] += d
+    return {k: round(v, 2) for k, v in totals.items()}
+
+
+def length_weighted_depth(contigs: list[dict], depths: dict):
+    """Length-weighted mean read depth of contigs (None if none have a depth)."""
+    pairs = [(len(c['seq']), depths[context.sequence_key(c['seq'])]) for c in contigs
+             if context.sequence_key(c['seq']) in depths]
+    total = sum(n for n, _ in pairs)
+    return round(sum(n * d for n, d in pairs) / total, 2) if total else None
+
+
+def write_contig_depths(path, contigs: list[dict], depths: dict, reconstruction_keys: set, bins: dict = None) -> None:
+    with open(path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=CONTIG_DEPTH_FIELDNAMES, delimiter='\t', lineterminator='\n')
+        writer.writeheader()
+        for c in contigs:
+            key = context.sequence_key(c['seq'])
+            writer.writerow({
+                'contig_id': c['seq_id'], 'contig_length': len(c['seq']),
+                'in_reconstruction': key in reconstruction_keys,
+                'bin': (bins.get(key, 'unbinned') if bins is not None else 'NA'),
+                'reads_depth': depths.get(key, 'NA'),
+            })
+
+
 def _positions(start: int, end: int, ref_length: int):
     """Positions of an interval that may wrap the origin (end > ref_length)."""
     for s, e in assessment.split_circular_interval(start, end, ref_length):
@@ -336,12 +456,14 @@ def _gap_bases_in_reads(gaps: list[dict], depth, min_depth: int) -> int:
 
 
 def reads_metrics(depth, gaps: list[dict], assembly_gaps: list[dict] = None,
-                  min_depth: int = DEFAULT_MIN_DEPTH) -> dict:
-    """READS_METRICS_FIELDNAMES for one reference."""
+                  min_depth: int = DEFAULT_MIN_DEPTH, reconstruction_depth=None) -> dict:
+    """READS_METRICS_FIELDNAMES for one reference (reconstruction_depth: from length_weighted_depth)."""
     n = len(depth)
     return {
         'reads_ref_fraction_covered': fraction_covered(depth, 0, n, min_depth) if n else 0.0,
         'reads_median_depth': median_depth(depth),
+        'reads_reconstruction_depth': reconstruction_depth if reconstruction_depth is not None else 'NA',
+        'reads_min_depth': min_depth,
         'unique_gap_in_reads_length': _gap_bases_in_reads(gaps, depth, min_depth),
         'assembly_unique_gap_in_reads_length': (_gap_bases_in_reads(assembly_gaps, depth, min_depth)
                                                 if assembly_gaps is not None else 'NA'),
@@ -349,10 +471,16 @@ def reads_metrics(depth, gaps: list[dict], assembly_gaps: list[dict] = None,
 
 
 def write_bedgraph(path, ref_id: str, depth) -> None:
-    """Read depth along the reference as bedGraph (zero-depth runs included)."""
-    with open(path, 'w') as f:
+    """Read depth along the reference as bedGraph (zero-depth runs included; gzipped if path ends .gz)."""
+    with (gzip.open(path, 'wt') if str(path).endswith('.gz') else open(path, 'w')) as f:
         for start, end, d in run_length_encode(depth):
             f.write(f'{ref_id}\t{start}\t{end}\t{d}\n')
+
+
+def read_bedgraph(path) -> list[tuple[int, int, int]]:
+    """(start, end, depth) segments of a bedGraph written by write_bedgraph."""
+    with (gzip.open(path, 'rt') if str(path).endswith('.gz') else open(path)) as f:
+        return [(int(c[1]), int(c[2]), int(c[3])) for c in (line.split('\t') for line in f) if len(c) >= 4]
 
 
 def write_gap_support(path, rows: list[dict]) -> None:

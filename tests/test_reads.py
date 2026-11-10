@@ -154,9 +154,9 @@ def test_gaps_in_reads_vs_not(tmp_path, sim, short_reads):
     assert int(m['unique_gap_in_reads_length']) >= 0.9 * dropped_on_ref
     assert int(m['unique_gap_in_reads_length']) < int(m['unique_gap_length'])
 
-    bedgraph = (out / 'ref' / 'reads_depth.bedgraph').read_text().splitlines()
-    assert bedgraph[0].startswith('ref\t0\t')
-    assert int(bedgraph[-1].split('\t')[2]) == ref_length
+    bedgraph = reads.read_bedgraph(out / 'ref' / 'reads_depth.bedgraph.gz')
+    assert bedgraph[0][0] == 0
+    assert bedgraph[-1][1] == ref_length
 
 
 @needs_minimap2
@@ -183,8 +183,8 @@ def test_long_reads_cover_origin(tmp_path, sim):
     m = read_tsv(out / 'assessment.tsv')[0]
     ref_length = len(sim['ref'])
     assert float(m['reads_ref_fraction_covered']) == pytest.approx(1 - (DELETED_END - DELETED_START) / ref_length, abs=0.01)
-    depth = [line.split('\t') for line in (out / 'ref' / 'reads_depth.bedgraph').read_text().splitlines()]
-    assert int(depth[0][3]) >= 3 and int(depth[-1][3]) >= 3      # both sides of the origin
+    depth = reads.read_bedgraph(out / 'ref' / 'reads_depth.bedgraph.gz')
+    assert depth[0][2] >= 3 and depth[-1][2] >= 3      # both sides of the origin
 
 
 @needs_minimap2
@@ -206,11 +206,45 @@ def test_reads_cache_reused(tmp_path, sim, short_reads, monkeypatch):
     out1 = run(tmp_path, sim, sim['contigs'], ['--short-reads', short_reads, '--reads-cache', cache], name='out1')
     assert len(list(cache.glob('*.depth.gz'))) == 1
 
+    assert len(list(cache.glob('*.contigs.json'))) == 1
+
     def fail(*args, **kwargs):
         raise AssertionError("reads aligned again despite the cache")
     monkeypatch.setattr(reads, 'align_read_set', fail)
-    out2 = run(tmp_path, sim, sim['contigs'][1:], ['--short-reads', short_reads, '--reads-cache', cache], name='out2')
-    assert (out1 / 'ref' / 'reads_depth.bedgraph').read_text() == (out2 / 'ref' / 'reads_depth.bedgraph').read_text()
+    monkeypatch.setattr(reads, 'align_reads_to_contigs', fail)
+    out2 = run(tmp_path, sim, sim['contigs'], ['--short-reads', short_reads, '--reads-cache', cache], name='out2')
+    assert (reads.read_bedgraph(out1 / 'ref' / 'reads_depth.bedgraph.gz')
+            == reads.read_bedgraph(out2 / 'ref' / 'reads_depth.bedgraph.gz'))
+    assert (out1 / 'contig_depth.tsv').read_text() == (out2 / 'contig_depth.tsv').read_text()
+
+
+@needs_minimap2
+def test_contig_depth_from_assembly(tmp_path, sim, short_reads):
+    contigs, dropped = drop_longest(sim)
+    assembly = tmp_path / 'assembly.fa'
+    write_fasta(assembly, sim['contigs'])
+    out = run(tmp_path, sim, contigs, ['--short-reads', short_reads, '--assembly', assembly])
+    rows = {r['contig_id']: r for r in read_tsv(out / 'contig_depth.tsv')}
+    assert set(rows) == {cid for cid, _ in sim['contigs']}          # every assembly contig
+    assert rows[dropped[0]]['in_reconstruction'] == 'False'
+    assert all(rows[cid]['in_reconstruction'] == 'True' for cid, _ in contigs)
+    # Reads tile the sample at 150/25 = 6x; the collapsed repeat contig gets all 3 copies' reads
+    repeat_id = next(cid for cid, seq in sim['contigs'] if seq == sim['repeat'])
+    unique = [float(r['reads_depth']) for cid, r in rows.items() if cid != repeat_id]
+    assert all(5 <= d <= 7 for d in unique), unique
+    assert 15 <= float(rows[repeat_id]['reads_depth']) <= 21
+    m = read_tsv(out / 'assessment.tsv')[0]
+    assert 5 <= float(m['reads_reconstruction_depth']) <= 9
+    sources = {r['contig_id']: r for r in read_tsv(out / 'ref' / 'contig_sources.tsv')}
+    assert float(sources[dropped[0]]['reads_depth']) == float(rows[dropped[0]]['reads_depth'])
+
+
+@needs_minimap2
+def test_contig_depth_without_assembly(tmp_path, sim, short_reads):
+    out = run(tmp_path, sim, sim['contigs'], ['--short-reads', short_reads])
+    rows = read_tsv(out / 'contig_depth.tsv')
+    assert {r['contig_id'] for r in rows} == {cid for cid, _ in sim['contigs']}
+    assert all(r['in_reconstruction'] == 'True' and r['bin'] == 'NA' for r in rows)
 
 
 @needs_minimap2
@@ -230,8 +264,21 @@ def test_without_reads_fields_are_na(tmp_path, sim):
     m = read_tsv(out / 'assessment.tsv')[0]
     assert all(m[f] == 'NA' for f in reads.READS_METRICS_FIELDNAMES)
     assert not (out / 'ref' / 'gap_support.tsv').exists()
+    assert not (out / 'contig_depth.tsv').exists()
 
 
 def test_short_reads_takes_at_most_two_files(tmp_path):
     with pytest.raises(SystemExit):
         main(['--plasmid-reconstruction', 'x.fa', '--ref-plasmid', 'r.fa', '--short-reads', 'a', 'b', 'c'])
+
+
+@needs_minimap2
+def test_report_shows_reads(tmp_path, sim, short_reads):
+    contigs, dropped = drop_longest(sim)
+    assembly = tmp_path / 'assembly.fa'
+    write_fasta(assembly, sim['contigs'])
+    out = run(tmp_path, sim, contigs, ['--short-reads', short_reads, '--assembly', assembly, '--report'])
+    page = (out / 'report.html').read_text()
+    assert 'read depth' in page and 'In the reads' in page and '<th>Read depth</th>' in page
+    assert 'not in the reads' in page and 'in the reads (100%' in page      # gap tooltips
+    assert 'below the minimum read depth' in page

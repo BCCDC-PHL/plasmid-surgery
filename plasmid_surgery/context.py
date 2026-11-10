@@ -59,6 +59,7 @@ CONTIG_SOURCES_FIELDNAMES = [
     'num_placements',
     'mapq',
     'percent_identity',
+    'reads_depth',   # mean read depth of the contig, with reads ('NA' otherwise)
 ]
 
 # Assembly-context metrics, added to the assessment metrics ('NA' when no assembly is given)

@@ -41,14 +41,32 @@ this stays above `--min-read-depth`.
 
 ## Outputs
 
-- `reads_depth.bedgraph`: depth along the reference.
+- `reads_depth.bedgraph.gz`: depth along the reference (gzipped bedGraph; IGV reads it).
 - `gap_support.tsv`: one row per gap with the fraction of it in the reads and a call:
   `in_reads` (≥ 90% of the gap), `not_in_reads` (≤ 10%) or `partly_in_reads`. With `--assembly`, the
   assembly's own gaps (what no assembly contig covers) are listed too, as `assembly_gap_<n>_<type>`.
-- In `assessment.tsv`: `reads_ref_fraction_covered`, `reads_median_depth`,
+- In `assessment.tsv`: `reads_ref_fraction_covered`, `reads_median_depth`, `reads_reconstruction_depth`,
   `unique_gap_in_reads_length` and `assembly_unique_gap_in_reads_length`.
+- `contig_depth.tsv` (top level): each contig's mean read depth, and `reads_depth` in `contig_sources.tsv`
+  (see [Contig depth](#contig-depth)).
+- With `--report`: a read-depth track under the reference on each map (stretches below
+  `--min-read-depth` marked in red), read support in each gap's tooltip, the read columns in the
+  references table, and each contig's read depth in the contig table.
 - In `ref_features.tsv`: `reads_fraction`, the fraction of each feature in the reads (is the gene in
   the sample at all?).
+
+## Contig depth
+
+Depth along the reference can't give a contig's own depth: reads from anywhere in the genome that
+match the reference pile up there. So for per-contig depth the reads are aligned a second time, to the
+whole assembly with `--assembly` (each read to its best place in the genome), otherwise to the
+reconstruction's contigs. Primary and supplementary alignments count, as for an assembler's own
+depth estimate, so a collapsed repeat's contig has every copy's reads (e.g. 3× the depth of its
+neighbours for three copies).
+
+Unlike the depth in contig headers (`depth` in `contig_sources.tsv`), which each assembler computes
+its own way, this is the same measure for every assembly, so it can be compared across assemblers and
+between a contig and the chromosome: with `--bins`, `contig_depth.tsv` labels the chromosome's contigs.
 
 ## Reading the numbers
 
@@ -68,8 +86,8 @@ sample.
 ## Many bins, one sample
 
 The reads are the same for every bin of a sample. With `--reads-cache DIR`, depth along each
-reference is stored in `DIR`, keyed by the reads files (path and size), the minimap2 preset, the
-identity threshold and the reference sequence, and later runs against the same references reuse it
+reference, and each contig's depth, is stored in `DIR`, keyed by the reads files (path and size), the minimap2 preset, the
+identity threshold and the reference (or contig) sequences, and later runs against the same references reuse it
 instead of aligning the reads again. Runs may share a cache directory concurrently (files are
 written atomically), but runs started at the same time each align the reads once before the cache
 is filled; run one bin first, then the rest.

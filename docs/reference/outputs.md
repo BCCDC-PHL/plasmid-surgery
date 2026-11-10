@@ -9,6 +9,7 @@ Outputs are written to `--outdir` (default: the current directory), named `<pref
 <outdir>/
 ├── assessment.tsv     one row per reference, ranked (rank, score)
 ├── candidates.tsv     with --db-sketch: every candidate reference considered (as from plasmid-surgery-refs)
+├── contig_depth.tsv   with reads: mean read depth of each contig (see below)
 ├── report.html        with --report: see The HTML report
 └── <ref_id>/          one per reference, even if there's only one
     ├── reference.fa
@@ -42,7 +43,7 @@ The top-level `assessment.tsv` has the same columns as each reference's, and is 
 | `missed_contigs.fa`  | With `--assembly` only: assembly contigs classified `missed`, with `bin=<label>` in the header when `--bins` is given. |
 | `ref_features.tsv`   | With `--ref-features` only: each feature annotated on the ref, and how completely the reconstruction (and assembly) contains it. |
 | `features.tsv`       | With `--features` only: each feature on the reconstruction's contigs (and with `--assembly`, on any contig aligning to the ref), with its contig's classification and bin, and whether the feature itself is on the ref. |
-| `reads_depth.bedgraph` | With `--short-reads` / `--long-reads` only: read depth along the ref (see [Reads](../concepts/reads.md)). |
+| `reads_depth.bedgraph.gz` | With `--short-reads` / `--long-reads` only: read depth along the ref, as gzipped bedGraph (see [Reads](../concepts/reads.md)). |
 | `gap_support.tsv`    | With `--short-reads` / `--long-reads` only: whether each gap is in the reads (see below). |
 
 Intermediate alignment files go to a temporary directory that's removed after the run, unless
@@ -101,6 +102,17 @@ With `--ref-features` / `--features` (otherwise `NA`):
 | `num_features_not_on_ref`    | Of those, features not on the ref: sequence the ref doesn't have (e.g. an acquired gene, or a gene on a `shared` contig's other part) |
 | `num_features_on_missed_contigs` | Of those, features on `missed` contigs |
 
+With `--short-reads` / `--long-reads` (otherwise `NA`; see [Reads](../concepts/reads.md)):
+
+| field                        | description |
+|------------------------------|-------------|
+| `reads_ref_fraction_covered` | Fraction of the ref with read depth ≥ `--min-read-depth`: how much of it the sample contains at all |
+| `reads_median_depth`         | Median read depth along the ref |
+| `reads_reconstruction_depth` | Length-weighted mean read depth of the reconstruction's contigs (as in `contig_depth.tsv`) |
+| `reads_min_depth`            | `--min-read-depth`: the depth a base needs to count as in the reads |
+| `unique_gap_in_reads_length` | Bases of the reconstruction's unique gaps that are in the reads: in the sample but missing from the reconstruction |
+| `assembly_unique_gap_in_reads_length` | The same for the whole assembly's unique gaps (with `--assembly`): in the sample but not assembled |
+
 ## `summary.tsv`
 
 One row per alignment, including those that failed the quality filters, and unmapped contigs.
@@ -150,6 +162,7 @@ With `--assembly`. One row per assembly contig that aligns to the reference.
 | `ref_bases_covered`      | Ref bases covered by the contig |
 | `ref_start`, `ref_end`   | Position of the contig's primary alignment on the ref (`ref_end` < `ref_start` if it spans the origin) |
 | `num_placements`, `mapq`, `percent_identity` | As in `summary.tsv` |
+| `reads_depth`            | With reads: the contig's mean read depth (as in `contig_depth.tsv`) |
 
 | classification       | meaning |
 |----------------------|---------|
@@ -157,15 +170,6 @@ With `--assembly`. One row per assembly contig that aligns to the reference.
 | `shared`             | Less than `--min-missed-fraction` (default 0.8) of the contig aligns to the ref. Likely a contig from the chromosome or another plasmid sharing some sequence (e.g. a transposon) with this one: not a binning error |
 | `repeat`             | Most of the contig aligns to the ref, but equally well at more than one place (e.g. an IS element), so it may belong on this plasmid, elsewhere, or both |
 | `missed`             | Most of the contig aligns to the ref, at a single location: likely a plasmid contig the reconstruction tool put elsewhere |
-
-With `--short-reads` / `--long-reads` (otherwise `NA`; see [Reads](../concepts/reads.md)):
-
-| field                        | description |
-|------------------------------|-------------|
-| `reads_ref_fraction_covered` | Fraction of the ref with read depth ≥ `--min-read-depth`: how much of it the sample contains at all |
-| `reads_median_depth`         | Median read depth along the ref |
-| `unique_gap_in_reads_length` | Bases of the reconstruction's unique gaps that are in the reads: in the sample but missing from the reconstruction |
-| `assembly_unique_gap_in_reads_length` | The same for the whole assembly's unique gaps (with `--assembly`): in the sample but not assembled |
 
 ## `ref_features.tsv`
 
@@ -210,3 +214,16 @@ with `--assembly` the whole assembly's.
 | `reads_fraction_covered` | Fraction of the gap with read depth ≥ `--min-read-depth` |
 | `reads_median_depth`     | Median read depth over the gap |
 | `call`                   | `in_reads` (≥ 0.9), `not_in_reads` (≤ 0.1) or `partly_in_reads` |
+
+## `contig_depth.tsv`
+
+With `--short-reads` / `--long-reads`, at the top level. One row per contig the reads were aligned to:
+every assembly contig with `--assembly` (so each read goes to its best place in the genome), otherwise
+the reconstruction's contigs.
+
+| field               | description |
+|---------------------|-------------|
+| `contig_id`, `contig_length` | The contig |
+| `in_reconstruction` | Whether it's one of the reconstruction's contigs (matched by sequence) |
+| `bin`               | With `--bins`: its bin(s), or `unbinned`; `NA` without `--bins` |
+| `reads_depth`       | Mean read depth: aligned read bases (primary and supplementary alignments at least `--min-read-identity` identical) / contig length, summed over short and long reads |

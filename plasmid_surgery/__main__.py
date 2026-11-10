@@ -36,7 +36,7 @@ OUTPUT_FILENAMES = {
     'ref_features': 'ref_features.tsv',
     'features': 'features.tsv',
     # Only with --short-reads / --long-reads
-    'reads_depth': 'reads_depth.bedgraph',
+    'reads_depth': 'reads_depth.bedgraph.gz',
     'gap_support': 'gap_support.tsv',
 }
 
@@ -44,6 +44,7 @@ OUTPUT_FILENAMES = {
 TOP_LEVEL_FILENAMES = {
     'assessment': 'assessment.tsv',   # one row per reference, ranked
     'candidates': 'candidates.tsv',   # with --db-sketch only
+    'contig_depth': 'contig_depth.tsv',   # with reads only
 }
 
 SUMMARY_OUTPUT_FIELDNAMES = [
@@ -341,10 +342,18 @@ def run(args, tmpdir) -> int:
         return 1
 
     depths = [None] * len(references)
+    contig_reads_depth = None
     sets = reads.read_sets(args.short_reads, args.long_reads, args.long_read_preset, args.min_read_identity)
     if sets:
         depths = reads.reads_depth(sets, references, Path(tmpdir) / 'reads', threads=args.threads,
                                    cache_dir=args.reads_cache)
+        # Contig depth from the reads aligned to the whole assembly if given (each read to its best place in
+        # the genome), else to the reconstruction
+        depth_contigs = assembly_contigs if assembly_contigs is not None else plasmid_reconstruction_contigs
+        contig_reads_depth = reads.contig_depths(sets, depth_contigs, Path(tmpdir) / 'reads', threads=args.threads,
+                                                 cache_dir=args.reads_cache)
+        reads.write_contig_depths(top_level['contig_depth'], depth_contigs, contig_reads_depth,
+                                  {context.sequence_key(c['seq']) for c in plasmid_reconstruction_contigs}, bins)
 
     results = []
     per_reference_outputs = []
@@ -356,7 +365,8 @@ def run(args, tmpdir) -> int:
         write_fasta(outputs['reference'], ref_plasmid['seq_id'], ref_plasmid['seq'], args.output_bases_per_line,
                     ref_plasmid.get('description', ''))
         results.append(assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs, ref_tmpdir, sample_id,
-                                        assembly_contigs, bins, ref_feature_input, sample_feature_input, depth))
+                                        assembly_contigs, bins, ref_feature_input, sample_feature_input, depth,
+                                        contig_reads_depth))
         per_reference_outputs.append(outputs)
 
     rank_references(results)
@@ -377,12 +387,14 @@ def run(args, tmpdir) -> int:
 
 
 def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs, tmpdir, sample_id,
-                     assembly_contigs, bins, ref_feature_input, sample_feature_input, depth=None) -> dict:
+                     assembly_contigs, bins, ref_feature_input, sample_feature_input, depth=None,
+                     contig_reads_depth=None) -> dict:
     """
     Assess the reconstruction against one reference, writing that reference's outputs
     (except assessment.tsv, written once all references are ranked).
 
     :param depth: read depth along the reference (reads.reads_depth), if reads were given
+    :param contig_reads_depth: mean read depth per contig sequence key (reads.contig_depths), if reads were given
 
     :return: the assessment metrics
     """
@@ -423,6 +435,10 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
             logger.error(str(e))
             return 1
         metrics.update(context_result['metrics'])
+        for row in context_result['contigs']:
+            contig = context_result['contigs_by_id'].get(row['contig_id'])
+            row['reads_depth'] = (contig_reads_depth.get(context.sequence_key(contig['seq']), 'NA')
+                                  if contig_reads_depth is not None and contig else 'NA')
         context.write_contig_sources(outputs['contig_sources'], context_result['contigs'])
         context.write_missed_contigs(outputs['missed_contigs'], context_result['missed_contigs'], bins, args.output_bases_per_line)
 
@@ -472,7 +488,8 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
 
     if depth is not None:
         assembly_gaps = context_result['gaps'] if context_result else None
-        metrics.update(reads.reads_metrics(depth, assessment_result['gaps'], assembly_gaps, args.min_read_depth))
+        metrics.update(reads.reads_metrics(depth, assessment_result['gaps'], assembly_gaps, args.min_read_depth,
+                                           reads.length_weighted_depth(plasmid_reconstruction_contigs, contig_reads_depth or {})))
         support = reads.gap_support(assessment_result['gaps'], depth, 'reconstruction', args.min_read_depth)
         if assembly_gaps is not None:
             support += reads.gap_support(assembly_gaps, depth, 'assembly', args.min_read_depth)

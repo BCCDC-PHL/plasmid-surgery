@@ -44,9 +44,11 @@ and spanning reads; leave variant calling to dedicated tools.
   exact join (needs reads aligned to the contigs, not only the reference).
 - [x] **Small plasmids missing from the assembly:** covered by reads breadth on the reference (with
   `--assembly`: `assembly_unique_gap_in_reads_length`).
-- [ ] Use reads depth in `contig_sources.tsv` (contig depth from reads, not headers: consistent across
-  assemblers) and for gene placement's copy-number evidence.
-- [ ] Show read depth in the HTML report (a depth track under each map; gaps coloured by call).
+- [x] Contig read depth from reads aligned to the assembly (`contig_depth.tsv`, `reads_depth` in
+  `contig_sources.tsv`; consistent across assemblers). Next: use it for gene placement's copy-number
+  evidence (relative to the chromosome bin).
+- [x] Read depth in the HTML report: a depth track under each map, read support in gap tooltips, read
+  columns in the tables, contig read depth in the contig table.
 - [ ] Later: read support (allele depth) at the SNPs/indels the assessment already reports.
 
 ## Gene placement

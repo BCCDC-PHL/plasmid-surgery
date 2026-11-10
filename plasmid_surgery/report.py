@@ -17,6 +17,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from plasmid_surgery.reads import read_bedgraph
+
 logger = logging.getLogger(__name__)
 
 # Reconstruction contig colours (cycled when there are more contigs than colours; labels and tooltips
@@ -29,6 +31,9 @@ GAP_COLOURS = {'unique': '#c0392b', 'repeat': '#e69f00'}
 CLASS_COLOURS = {'missed': '#d1663a', 'shared': '#9a9a9a', 'repeat': '#8a5cb8'}
 STATUS_COLOURS = {'present': '#3a9a5b', 'inferred': '#9ccc9c', 'partial': '#e6b800', 'absent': '#c0392b'}
 REF_STATUS_COLOURS = {'on_ref': '#3a9a5b', 'partial': '#e6b800', 'not_on_ref': '#c0392b'}
+DEPTH_COLOUR, LOW_DEPTH_COLOUR = '#7f98b5', '#c0392b'
+DEPTH_TRACK = 34       # height of the read depth track
+CALL_LABELS = {'in_reads': 'in the reads', 'not_in_reads': 'not in the reads', 'partly_in_reads': 'partly in the reads'}
 
 DRAW_WIDTH = 1000      # px for the longest reference (shared scale) or each reference (fitted)
 LEFT, RIGHT = 120, 20  # margins: track labels on the left
@@ -86,13 +91,18 @@ def load_run(outdir) -> dict:
                'summary': read_tsv(d / name('summary.tsv')),
                'gaps': read_bed(d / name('gaps.bed')),
                'events': read_tsv(d / name('events.tsv'))}
-        for optional in ('contig_sources', 'ref_features', 'features'):
+        for optional in ('contig_sources', 'ref_features', 'features', 'gap_support'):
             path = d / name(f'{optional}.tsv')
             ref[optional] = read_tsv(path) if path.exists() else None
+        depth_path = d / name('reads_depth.bedgraph.gz')
+        ref['reads_depth'] = read_bedgraph(depth_path) if depth_path.exists() else None
         references.append(ref)
     references.sort(key=lambda r: int(r['row'].get('rank') or 0))
+    contig_depth_path = outdir / name('contig_depth.tsv')
     return {'outdir': outdir, 'prefix': prefix, 'assessment': top,
             'candidates': read_tsv(candidates_path) if candidates_path.exists() else None,
+            'contig_depth': ({r['contig_id']: r for r in read_tsv(contig_depth_path)}
+                             if contig_depth_path.exists() else None),
             'references': references}
 
 
@@ -233,6 +243,62 @@ def arrow_points(x0, x1, y, reverse, height=ARROW_HEIGHT):
 
 # --- one reference's map ---
 
+def depth_bins(segments, length, n_bins) -> list[float]:
+    """Mean depth in each of n_bins equal bins along the reference, from (start, end, depth) segments."""
+    sums = [0.0] * n_bins
+    width = length / n_bins
+    for start, end, d in segments:
+        if not d:
+            continue
+        b0, b1 = int(start / width), min(int((end - 1) / width), n_bins - 1)
+        for b in range(b0, b1 + 1):
+            lo, hi = max(start, b * width), min(end, (b + 1) * width)
+            if hi > lo:
+                sums[b] += d * (hi - lo)
+    return [v / width for v in sums]
+
+
+def render_depth_track(s, ref: dict, x, px_per_bp: float, y: float) -> float:
+    """Read depth along the reference: mean depth per ~2 px bar, scaled to 2x the median (higher bars are
+    clipped, shown darker), and the stretches below the minimum read depth in red underneath."""
+    length = ref['length']
+    segments = ref['reads_depth']
+    row = ref['row']
+    try:
+        min_depth = int(row.get('reads_min_depth', 'NA'))
+    except ValueError:
+        min_depth = 3
+    n_bins = max(1, int(length * px_per_bp / 2))
+    means = depth_bins(segments, length, n_bins)
+    ordered = sorted(means)
+    median = ordered[len(ordered) // 2] if ordered else 0
+    top = max(2 * median, max(means, default=0) if median == 0 else 0, 1)
+    s.text(LEFT - 8, y + DEPTH_TRACK / 2 + 4, 'read depth', size=10, fill=MUTED, anchor='end')
+    s.text(LEFT - 8, y + 8, f"{top:,.0f}", size=8, fill=MUTED, anchor='end')
+    s.line(x(0), y + DEPTH_TRACK, x(length), y + DEPTH_TRACK, FAINT)
+    bin_bp = length / n_bins
+    for i, m in enumerate(means):
+        if m <= 0:
+            continue
+        h = min(m / top, 1) * DEPTH_TRACK
+        a = i * bin_bp
+        s.rect(x(a), y + DEPTH_TRACK - h, max(bin_bp * px_per_bp, 0.5), h,
+               DEPTH_COLOUR if m <= top else '#4a6585',
+               title=f"{a / 1000:.1f}–{(a + bin_bp) / 1000:.1f} kb: mean read depth {m:,.1f}",
+               extra='shape-rendering="crispEdges"')
+    low = []
+    for start, end, d in segments:
+        if d < min_depth:
+            if low and low[-1][1] == start:
+                low[-1] = (low[-1][0], end)
+            else:
+                low.append((start, end))
+    for start, end in low:
+        s.rect(x(start), y + DEPTH_TRACK + 1, max((end - start) * px_per_bp, 1), 3, LOW_DEPTH_COLOUR,
+               title=f"{start:,}–{end:,} ({end - start:,} bp): read depth below {min_depth}")
+    return y + DEPTH_TRACK + 12
+
+
 def render_map(ref: dict, colours: dict, px_per_bp: float, *, standalone=False, title=None, labels=None) -> str:
     """The linear map of one reference, as an SVG string. labels: contig ID -> short label for the map."""
     labels = labels or {}
@@ -260,17 +326,25 @@ def render_map(ref: dict, colours: dict, px_per_bp: float, *, standalone=False, 
     s.text(LEFT - 8, y + 11, 'reference', size=10, fill=MUTED, anchor='end')
     s.rect(x(0), y, length * px_per_bp, 14, REF,
            title=f"{ref['row']['ref_id']}: {length:,} bp")
+    support = {r['gap']: r for r in (ref['gap_support'] or []) if r['level'] == 'reconstruction'}
     for g in ref['gaps']:
+        sup = support.get(g['name'])
+        reads_note = (f"\n{CALL_LABELS.get(sup['call'], sup['call'])} ({float(sup['reads_fraction_covered']):.0%}, "
+                      f"median depth {sup['reads_median_depth']})" if sup else '')
         for a, b in wrap(g['start'], g['end'], length):
             fill = 'url(#hatch-repeat)' if g['type'] == 'repeat' else GAP_COLOURS['unique']
             s.rect(x(a), y, (b - a) * px_per_bp, 14, fill,
                    title=f"{g['type']} gap {g['name']}: {g['start']:,}–{g['end'] % length if g['end'] > length else g['end']:,} "
-                         f"({g['end'] - g['start']:,} bp)")
+                         f"({g['end'] - g['start']:,} bp){reads_note}")
     for e in events:
         px = x(int(e['ref_start']))
         s.polygon([(px - 5, y - 9), (px + 5, y - 9), (px, y - 1)], INK,
                   title=f"insertion of {int(e['length']):,} bp in {e['contig_id']} at {int(e['ref_start']):,}")
     y += 22
+
+    # Read depth along the reference (with reads)
+    if ref['reads_depth'] is not None:
+        y = render_depth_track(s, ref, x, px_per_bp, y)
 
     # Reconstruction contigs
     rows = [r for r in ref['summary'] if r['is_mapped'] == 'True']
@@ -324,7 +398,8 @@ def render_map(ref: dict, colours: dict, px_per_bp: float, *, standalone=False, 
             yy = y + lane * LANE
             tip = (f"{r['contig_id']} ({int(r['contig_length']):,} bp): {r['classification']}, bin {r['bin']}\n"
                    f"{float(r['contig_fraction_on_ref']):.0%} on ref, depth {r['depth']} "
-                   f"({r['depth_relative_to_reconstruction']}× reconstruction), placements {r['num_placements']}")
+                   f"({r['depth_relative_to_reconstruction']}× reconstruction), placements {r['num_placements']}"
+                   + (f"\nread depth {r['reads_depth']}" if r.get('reads_depth', 'NA') not in ('NA', '') else ''))
             for a, b in wrap(start, end, length):
                 s.polygon(arrow_points(x(a), x(b), yy, False), c, title=tip, cls='assembly-contig',
                           data={'class': r['classification']}, stroke='white', extra='stroke-width="0.5"')
@@ -411,10 +486,13 @@ def summary_table(run: dict) -> str:
     rows = sorted(run['assessment'], key=lambda r: int(r.get('rank') or 0))
     has_assembly = any(r.get('assembly_ref_fraction_covered', 'NA') != 'NA' for r in rows)
     has_features = any(r.get('num_ref_features', 'NA') != 'NA' for r in rows)
+    has_reads = any(r.get('reads_ref_fraction_covered', 'NA') != 'NA' for r in rows)
     head = ['Rank', 'Reference', 'Length', 'Score', 'Covered', 'Covered incl. repeats', 'Unique gaps',
             'Reconstruction aligned']
     if has_assembly:
         head += ['Assembly covers', 'Missed (binning)', 'Unique gaps in assembly']
+    if has_reads:
+        head += ['In the reads', 'Read depth (median)', 'Unique gaps in the reads']
     if has_features:
         head += ['Ref features present']
     out = ['<table class="summary"><thead><tr>' + ''.join(f'<th>{h}</th>' for h in head) + '</tr></thead><tbody>']
@@ -425,6 +503,9 @@ def summary_table(run: dict) -> str:
         if has_assembly:
             cells += [fraction(r['assembly_ref_fraction_covered']), f"{bp(r['missed_ref_bases'])} bp",
                       f"{bp(r['assembly_unique_gap_length'])} bp"]
+        if has_reads:
+            cells += [fraction(r['reads_ref_fraction_covered']), r.get('reads_median_depth', 'NA'),
+                      f"{bp(r['unique_gap_in_reads_length'])} bp"]
         if has_features:
             cells += [f"{r['num_ref_features_present']} of {r['num_ref_features']}"
                       + (f" (+{r['num_ref_features_inferred']} inferred)" if r['num_ref_features_inferred'] not in ('0', 'NA') else '')]
@@ -436,10 +517,14 @@ def summary_table(run: dict) -> str:
 def contig_matrix(run: dict, contigs, colours) -> str:
     """Rows: reconstruction contigs; columns: references; cells: where each contig is on each."""
     refs = run['references']
-    head = ['Contig', 'Length'] + [f'#{r["row"]["rank"]} {esc(r["row"]["ref_id"])}' for r in refs]
+    depth = run.get('contig_depth')
+    head = (['Contig', 'Length'] + (['Read depth'] if depth is not None else [])
+            + [f'#{r["row"]["rank"]} {esc(r["row"]["ref_id"])}' for r in refs])
     out = ['<table class="matrix"><thead><tr>' + ''.join(f'<th>{h}</th>' for h in head) + '</tr></thead><tbody>']
     for cid, length in contigs:
         cells = [f'<span class="swatch" style="background:{colours[cid]}"></span>{esc(cid)}', f'{length:,}']
+        if depth is not None:
+            cells.append(esc(depth[cid]['reads_depth']) if cid in depth else '<span class="na">NA</span>')
         for ref in refs:
             rows = [r for r in ref['summary'] if r['contig_id'] == cid and r['is_mapped'] == 'True'
                     and r['is_secondary'] != 'True']
@@ -466,6 +551,8 @@ def legend(run: dict) -> str:
     if any(r['contig_sources'] is not None for r in run['references']):
         items += [('swatch', CLASS_COLOURS['missed'], 'missed contig'), ('swatch', CLASS_COLOURS['shared'], 'shared contig'),
                   ('swatch', CLASS_COLOURS['repeat'], 'repeat contig')]
+    if any(r['reads_depth'] is not None for r in run['references']):
+        items += [('swatch', DEPTH_COLOUR, 'read depth'), ('swatch', LOW_DEPTH_COLOUR, 'below the minimum read depth')]
     if any(r['ref_features'] is not None for r in run['references']):
         items += [('swatch', STATUS_COLOURS[k], f'ref feature {k}') for k in ('present', 'partial', 'absent')]
         items += [('hatch', STATUS_COLOURS['present'], 'ref feature inferred')]
@@ -546,6 +633,9 @@ def panel_stats(row: dict) -> str:
     if row.get('assembly_ref_fraction_covered', 'NA') != 'NA':
         parts.append(f"assembly covers {fraction(row['assembly_ref_fraction_covered'])}, "
                      f"{bp(row['missed_ref_bases'])} bp only in missed contigs")
+    if row.get('reads_ref_fraction_covered', 'NA') != 'NA':
+        parts.append(f"in the reads {fraction(row['reads_ref_fraction_covered'])} (median depth {row['reads_median_depth']}), "
+                     f"{bp(row['unique_gap_in_reads_length'])} bp of unique gaps in the reads")
     return ' · '.join(parts)
 
 
