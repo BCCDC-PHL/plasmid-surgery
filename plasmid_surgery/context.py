@@ -290,6 +290,7 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
         'missed_contigs': missed_contigs,
         'placements': all_placements,
         'alternatives': all_alternatives,
+        'gaps': gaps,
         'contigs_by_id': aligned_contigs,
         'classifications': classifications,
         'locations': locations,

@@ -92,6 +92,15 @@ done
 python scripts/summarise_near.py $N $N/surgery $N/refsets       # -> $N/by_plasmid.tsv
 ```
 
+With reads (`--short-reads`; `--long-reads` too for dragonflye's assemblies): every reference set again,
+one isolate at a time (reads downloaded, used, deleted; assemblies and mob_recon outputs reused), into
+`with_reads/` (same layout), read depth cached in `with_reads/cache/`; `done/<bs>.reads` marks an isolate:
+
+```bash
+PLSDB=$PLSDB nohup scripts/rerun_with_reads.sh 8 > logs/reads_rerun.out 2>&1 &    # [jobs] [biosample ...]
+tail -f logs/reads_progress.log
+```
+
 `$PLSDB` is a PLSDB 2024_05_31_v2 download (`nuccore.csv`, `biosample.csv`, `amr.tsv`, ...); the scripts
 default to `../data/plsdb`.
 
@@ -134,7 +143,7 @@ converts) plus its assembly working files.
 isolates.tsv, plasmids.tsv, runs.tsv
 scripts/            select_isolates.py, process_isolates.sh, fetch_data.py, run_surgery.sh,
                     summarise_surgery.py, select_near_refs.py, summarise_near.py,
-                    build_carbapenemase_db.py; envs/*.yml; nosync/ (build: gcc -shared -fPIC -o libnosync.so nosync.c)
+                    build_carbapenemase_db.py, rerun_with_reads.sh; envs/*.yml; nosync/ (build: gcc -shared -fPIC -o libnosync.so nosync.c)
 truth/<bs>.fasta    published plasmids; truth.tsv.part (rows per plasmid)
 assemblies/{shovill,unicycler,dragonflye}/<bs>/contigs.fa (+ .gfa, logs)
 mob_recon/{shovill,unicycler,dragonflye}/<bs>/
@@ -144,6 +153,7 @@ surgery/            plasmid-surgery outputs per <assembler>/<bs>/<bin>/; by_plas
 near/               near_refs.tsv (chosen near relatives), mash distances, by_plasmid.tsv
 refsets/<set>/      near-relative references per isolate (<bs>.fasta) and their genes (<bs>.bed)
 surgery_near/<set>/ plasmid-surgery outputs against each near-relative set
+with_reads/         the same runs with reads (rerun_with_reads.sh); cache/ = read depth per reference
 near-neighbor-with-carbapenemase/  the same against the carbapenemase-plasmid database (near_refs.tsv,
                     refsets/, surgery/<set>/, by_plasmid.tsv); the database is in ../data/plsdb_carbapenemase/
 ```

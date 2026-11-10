@@ -15,6 +15,7 @@ import plasmid_surgery.alignment as alignment
 import plasmid_surgery.assessment as assessment
 import plasmid_surgery.context as context
 import plasmid_surgery.features as features
+import plasmid_surgery.reads as reads
 import plasmid_surgery.refs as refs
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,9 @@ OUTPUT_FILENAMES = {
     # Only with --ref-features / --features
     'ref_features': 'ref_features.tsv',
     'features': 'features.tsv',
+    # Only with --short-reads / --long-reads
+    'reads_depth': 'reads_depth.bedgraph',
+    'gap_support': 'gap_support.tsv',
 }
 
 # Written to <outdir>/ itself
@@ -98,7 +102,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--ref-features', nargs='+', metavar='FILE', help="Feature (gene) annotations on the ref plasmid: hAMRonization TSV, GFF3 or BED. Reports how completely the reconstruction (and assembly) contains each (ref_features.tsv)")
     parser.add_argument('--features', nargs='+', metavar='FILE', help="Feature (gene) annotations on the sample's assembly or reconstruction contigs: hAMRonization TSV, GFF3 or BED. Reports, for features on the reconstruction (and with --assembly, on any contig aligning to the ref), where each is and whether it's on the ref (features.tsv)")
     parser.add_argument('--min-feature-coverage', type=float, default=features.DEFAULT_MIN_FEATURE_COVERAGE, help=f"Minimum fraction of a feature covered to call it present / on the ref (default: {features.DEFAULT_MIN_FEATURE_COVERAGE})")
-    parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for minimap2 (alignment to each reference) and, with --db-sketch, mash (default: 1)")
+    reads_group = parser.add_argument_group("reads (optional): is the reference's sequence in the sample at all?")
+    reads_group.add_argument('--short-reads', nargs='+', metavar='FASTQ', help="The sample's short reads: R1 and R2, or one file (single-end or interleaved). Aligned to each reference to report read depth along it (reads_depth.bedgraph) and whether each gap is in the reads (gap_support.tsv)")
+    reads_group.add_argument('--long-reads', nargs='+', metavar='FASTQ', help="The sample's long reads, as --short-reads")
+    reads_group.add_argument('--long-read-preset', default=reads.DEFAULT_LONG_READ_PRESET, choices=reads.LONG_READ_PRESETS, help=f"minimap2 preset for --long-reads (default: {reads.DEFAULT_LONG_READ_PRESET}; lr:hq for recent nanopore, map-hifi for PacBio HiFi)")
+    reads_group.add_argument('--min-read-identity', type=float, help=f"Minimum identity of a read alignment to count (default: {reads.DEFAULT_MIN_IDENTITY['short']} for short reads, {reads.DEFAULT_MIN_IDENTITY['long']} for long reads)")
+    reads_group.add_argument('--min-read-depth', type=int, default=reads.DEFAULT_MIN_DEPTH, help=f"Minimum read depth for a reference base to count as in the reads (default: {reads.DEFAULT_MIN_DEPTH})")
+    reads_group.add_argument('--reads-cache', metavar='DIR', help="Directory to cache read depth along each reference in, keyed by the reads files (path and size), settings and reference sequence: runs for other bins of the same sample against the same references then skip the read alignment")
+    parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for minimap2 (alignment to each reference; reads) and, with --db-sketch, mash (default: 1)")
     parser.add_argument('-o', '--outdir', default='.', help="Output directory (default: current directory)")
     parser.add_argument('-p', '--prefix', help="Prefix for output filenames, e.g. '-p sample1' gives 'sample1_assessment.tsv' (default: no prefix)")
     parser.add_argument('--tmpdir', help="Directory for intermediate minimap2 files, kept after the run. If not supplied, a temporary directory is used and removed afterwards.")
@@ -122,6 +133,8 @@ def parse_args(argv=None):
         parser.error("--bins requires --assembly")
     if args.db_sketch and not args.db_fasta:
         parser.error("--db-sketch requires --db-fasta")
+    if args.short_reads and len(args.short_reads) > 2:
+        parser.error("--short-reads takes one or two files")
 
     return args
 
@@ -173,7 +186,8 @@ def rank_references(results: list[dict]) -> None:
 
 
 def assessment_fieldnames() -> list:
-    fields = assessment.METRICS_FIELDNAMES + context.CONTEXT_METRICS_FIELDNAMES + features.FEATURE_METRICS_FIELDNAMES
+    fields = (assessment.METRICS_FIELDNAMES + context.CONTEXT_METRICS_FIELDNAMES + features.FEATURE_METRICS_FIELDNAMES
+              + reads.READS_METRICS_FIELDNAMES)
     return fields[:2] + ['rank', 'score'] + fields[2:]
 
 
@@ -326,9 +340,15 @@ def run(args, tmpdir) -> int:
             f.write('\t'.join(assessment_fieldnames()) + '\n')
         return 1
 
+    depths = [None] * len(references)
+    sets = reads.read_sets(args.short_reads, args.long_reads, args.long_read_preset, args.min_read_identity)
+    if sets:
+        depths = reads.reads_depth(sets, references, Path(tmpdir) / 'reads', threads=args.threads,
+                                   cache_dir=args.reads_cache)
+
     results = []
     per_reference_outputs = []
-    for ref_plasmid, dirname in zip(references, unique_dirnames([r['seq_id'] for r in references])):
+    for ref_plasmid, dirname, depth in zip(references, unique_dirnames([r['seq_id'] for r in references]), depths):
         outputs = output_paths(outdir / dirname, args.prefix)
         os.makedirs(outdir / dirname, exist_ok=True)
         ref_tmpdir = Path(tmpdir) / dirname
@@ -336,7 +356,7 @@ def run(args, tmpdir) -> int:
         write_fasta(outputs['reference'], ref_plasmid['seq_id'], ref_plasmid['seq'], args.output_bases_per_line,
                     ref_plasmid.get('description', ''))
         results.append(assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs, ref_tmpdir, sample_id,
-                                        assembly_contigs, bins, ref_feature_input, sample_feature_input))
+                                        assembly_contigs, bins, ref_feature_input, sample_feature_input, depth))
         per_reference_outputs.append(outputs)
 
     rank_references(results)
@@ -357,10 +377,12 @@ def run(args, tmpdir) -> int:
 
 
 def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs, tmpdir, sample_id,
-                     assembly_contigs, bins, ref_feature_input, sample_feature_input) -> dict:
+                     assembly_contigs, bins, ref_feature_input, sample_feature_input, depth=None) -> dict:
     """
     Assess the reconstruction against one reference, writing that reference's outputs
     (except assessment.tsv, written once all references are ranked).
+
+    :param depth: read depth along the reference (reads.reads_depth), if reads were given
 
     :return: the assessment metrics
     """
@@ -418,6 +440,9 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
             min_coverage=args.min_feature_coverage,
             min_deletion_length=args.min_indel_length,
         )
+        for row in rows:
+            row['reads_fraction'] = (reads.fraction_covered(depth, row['ref_start'], row['ref_end'], args.min_read_depth)
+                                     if depth is not None else 'NA')
         features.write_rows(outputs['ref_features'], rows, features.REF_FEATURES_FIELDNAMES)
         metrics.update(feature_metrics)
 
@@ -444,6 +469,15 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
         )
         features.write_rows(outputs['features'], rows, features.SAMPLE_FEATURES_FIELDNAMES)
         metrics.update(feature_metrics)
+
+    if depth is not None:
+        assembly_gaps = context_result['gaps'] if context_result else None
+        metrics.update(reads.reads_metrics(depth, assessment_result['gaps'], assembly_gaps, args.min_read_depth))
+        support = reads.gap_support(assessment_result['gaps'], depth, 'reconstruction', args.min_read_depth)
+        if assembly_gaps is not None:
+            support += reads.gap_support(assembly_gaps, depth, 'assembly', args.min_read_depth)
+        reads.write_gap_support(outputs['gap_support'], support)
+        reads.write_bedgraph(outputs['reads_depth'], ref_plasmid_id, depth)
 
     logger.info(f"Assessment vs. {ref_plasmid_id}: " + json.dumps(metrics))
     assessment.write_gaps_bed(outputs['gaps'], assessment_result['gaps'], ref_plasmid_id, ref_plasmid_length)
