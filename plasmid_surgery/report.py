@@ -466,6 +466,210 @@ def render_map(ref: dict, colours: dict, px_per_bp: float, *, standalone=False, 
             f'viewBox="0 0 {width:.0f} {height:.0f}" class="map">{style}{PATTERNS}{body}</svg>')
 
 
+# --- the reconstruction's own coordinates ---
+
+EXPLAINED_COLOUR, ALTERNATIVE_COLOUR, UNEXPLAINED_COLOUR = '#4f6f8f', '#a9bccf', '#c0392b'
+CONTIG_GAP_PX = 6
+
+
+def explained_intervals(ref: dict) -> dict:
+    """Per reconstruction contig, the (start, end, row) intervals of it that align to the reference: placements
+    and alternative placements (from summary.tsv's contig_start/contig_end)."""
+    out = {}
+    for r in ref['summary']:
+        if (r['is_mapped'] == 'True' and r.get('alignment_class') in ('placement', 'alternative')
+                and r.get('contig_start', 'NA') not in ('NA', '')):
+            out.setdefault(r['contig_id'], []).append((int(r['contig_start']), int(r['contig_end']), r))
+    return out
+
+
+def merged_length(intervals) -> int:
+    total, end = 0, None
+    for s, e in sorted(intervals):
+        if end is None or s > end:
+            total += e - s
+            end = e
+        elif e > end:
+            total += e - end
+            end = e
+    return total
+
+
+def uncovered(intervals, length) -> list[tuple[int, int]]:
+    gaps, pos = [], 0
+    for s, e in sorted(intervals):
+        if s > pos:
+            gaps.append((pos, s))
+        pos = max(pos, e)
+    if pos < length:
+        gaps.append((pos, length))
+    return gaps
+
+
+def reconstruction_explained(run: dict, contigs) -> dict:
+    """How much of the reconstruction each reference explains, and all of them together."""
+    total = sum(n for _, n in contigs) or 1
+    per_ref = []
+    union = {cid: [] for cid, _ in contigs}
+    for ref in run['references']:
+        intervals = explained_intervals(ref)
+        bases = 0
+        for cid, n in contigs:
+            ivs = [(s, e) for s, e, _ in intervals.get(cid, [])]
+            bases += merged_length(ivs)
+            union[cid] += ivs
+        per_ref.append((ref, intervals, bases / total))
+    unexplained = {cid: uncovered(union[cid], n) for cid, n in contigs}
+    unexplained_bp = sum(e - s for gaps in unexplained.values() for s, e in gaps)
+    return {'total': total, 'per_ref': per_ref, 'unexplained': unexplained,
+            'any_fraction': 1 - unexplained_bp / total, 'unexplained_bp': unexplained_bp}
+
+
+def render_reconstruction(run: dict, contigs, colours: dict, labels: dict, explained: dict) -> str:
+    """
+    The reconstruction on its own coordinates (contigs end to end, longest first): which parts of it each
+    reference explains (aligns to), and which parts no reference does. The reference maps can't show the
+    latter: sequence that aligns to no reference has no place on them.
+    """
+    total = explained['total']
+    right = 56
+    usable = DRAW_WIDTH - CONTIG_GAP_PX * max(len(contigs) - 1, 0)
+    px = max(usable, 200) / total
+    offsets, pos = {}, LEFT
+    for cid, n in contigs:
+        offsets[cid] = pos
+        pos += n * px + CONTIG_GAP_PX
+    width = pos - CONTIG_GAP_PX + right
+    xs = lambda cid, p: offsets[cid] + p * px  # noqa: E731
+    s = Svg()
+    y = 8
+
+    # Ruler: positions within each contig wide enough to carry ticks
+    step = nice_tick(max(n for _, n in contigs), px) if contigs else 1
+    for cid, n in contigs:
+        if n * px < 60:
+            continue
+        s.line(offsets[cid], y + 14, offsets[cid] + n * px, y + 14, MUTED)
+        for t in range(0, n + 1, step):
+            s.line(xs(cid, t), y + 10, xs(cid, t), y + 14, MUTED)
+            if t and (n - t) * px < 28:
+                continue   # too close to the contig's end (the next contig's 0)
+            s.text(xs(cid, t), y + 8, f"{t / 1000:g} kb" if step >= 1000 else f"{t:,}", size=9, fill=MUTED, anchor='middle')
+    y += 22
+
+    # Contigs
+    s.text(LEFT - 8, y + 11, 'contigs', size=10, fill=MUTED, anchor='end')
+    for cid, n in contigs:
+        s.rect(offsets[cid], y, max(n * px, 1), 14, colours.get(cid, MUTED), title=f"{cid} ({n:,} bp)",
+               cls='contig', data={'contig': cid})
+        label = labels.get(cid, cid)
+        if n * px >= len(label) * 6 + 8:
+            s.text(offsets[cid] + n * px / 2, y + 10.5, label, size=9, fill='white', anchor='middle',
+                   extra='pointer-events="none"')
+    y += 24
+
+    # One row per reference that explains any of it; the rest in one line
+    none = [ref['row']['ref_id'] for ref, _, frac in explained['per_ref'] if frac == 0]
+    for ref, intervals, frac in explained['per_ref']:
+        if frac == 0:
+            continue
+        row = ref['row']
+        name = f"#{row.get('rank', '')} {row['ref_id']}"
+        s.text(LEFT - 8, y + 10, name if len(name) <= 20 else name[:19] + '…', size=10, fill=MUTED, anchor='end')
+        s.line(LEFT, y + 6, pos - CONTIG_GAP_PX, y + 6, FAINT)
+        for cid, n in contigs:
+            for a, b, r in sorted(intervals.get(cid, []), key=lambda t: t[2].get('alignment_class') != 'alternative'):
+                alt = r.get('alignment_class') == 'alternative'
+                tip = (f"{cid}:{a + 1:,}–{b:,} ({b - a:,} bp) aligns to {row['ref_id']} "
+                       f"{int(r['alignment_start']):,}–{int(r['alignment_end']):,} "
+                       f"({'−' if r['reverse_complement'] == 'True' else '+'})\n"
+                       f"identity {r['percent_identity']}%{', alternative placement (repeat)' if alt else ''}")
+                s.rect(xs(cid, a), y, max((b - a) * px, 1), 12, ALTERNATIVE_COLOUR if alt else EXPLAINED_COLOUR,
+                       title=tip, cls='explained', data={'contig': cid})
+        s.text(pos - CONTIG_GAP_PX + 6, y + 10, f"{frac:.0%}", size=10, fill=INK)
+        y += LANE
+
+    # No reference
+    s.text(LEFT - 8, y + 10, 'no reference', size=10, fill=MUTED, anchor='end')
+    s.line(LEFT, y + 6, pos - CONTIG_GAP_PX, y + 6, FAINT)
+    for cid, n in contigs:
+        for a, b in explained['unexplained'][cid]:
+            s.rect(xs(cid, a), y, max((b - a) * px, 1), 12, UNEXPLAINED_COLOUR,
+                   title=f"{cid}:{a + 1:,}–{b:,} ({b - a:,} bp): aligns to none of the references",
+                   cls='unexplained', data={'contig': cid})
+    s.text(pos - CONTIG_GAP_PX + 6, y + 10, f"{1 - explained['any_fraction']:.0%}", size=10, fill=UNEXPLAINED_COLOUR)
+    y += LANE + 4
+    if none:
+        listed = ', '.join(none[:8]) + (f' and {len(none) - 8} more' if len(none) > 8 else '')
+        s.text(LEFT, y + 6, f"Explaining none of it: {listed}", size=9, fill=MUTED)
+        y += 16
+
+    # The sample's features on the reconstruction (with --features)
+    feats = next((ref['features'] for ref in run['references'] if ref['features'] is not None), None)
+    if feats is not None:
+        placed = [f for f in feats if f['contig_id'] in offsets and f['contig_start'] not in ('NA', '')]
+        seen, unique = set(), []
+        for f in placed:
+            key = (f['contig_id'], f['contig_start'], f['contig_end'], f['name'])
+            if key not in seen:
+                seen.add(key)
+                unique.append(f)
+        unique.sort(key=lambda f: xs(f['contig_id'], int(f['contig_start'])))
+        s.text(LEFT - 8, y + 10 + 10, 'sample features', size=10, fill=MUTED, anchor='end')
+        spans = [(xs(f['contig_id'], int(f['contig_start'])),
+                  max(xs(f['contig_id'], int(f['contig_end'])), xs(f['contig_id'], int(f['contig_start'])) + len(f['name']) * CHAR_PX + 6))
+                 for f in unique]
+        lanes = assign_lanes([(int(a), int(b)) for a, b in spans], int(width) + 1)
+        y += 10
+        for f, lane in zip(unique, lanes):
+            a, b = int(f['contig_start']), int(f['contig_end'])
+            yy = y + lane * FEATURE_LANE
+            outside = sum(max(0, min(b, e) - max(a, st)) for st, e in explained['unexplained'][f['contig_id']])
+            off_refs = b > a and outside / (b - a) > 0.5
+            tip = (f"{f['name']}{': ' + f['product'] if f.get('product') and f['product'] != f['name'] else ''}\n"
+                   f"{f['contig_id']}:{a + 1:,}–{b:,}" + ("\nin a part no reference explains" if off_refs else ''))
+            s.rect(xs(f['contig_id'], a), yy, max((b - a) * px, 1.5), 10, UNEXPLAINED_COLOUR if off_refs else INK,
+                   title=tip, cls='feature', data={'contig': f['contig_id']})
+            s.text(xs(f['contig_id'], a), yy - 3, f['name'], size=9, fill=INK)
+        y += max(max(lanes, default=-1) + 1, 1) * FEATURE_LANE
+        if not unique:
+            s.text(LEFT, y, 'none on the reconstruction', size=9, fill=MUTED)
+            y += 12
+
+    height = y + 4
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" '
+            f'viewBox="0 0 {width:.0f} {height:.0f}" class="map">{"".join(s.parts)}</svg>')
+
+
+def reconstruction_summary(run: dict, explained: dict) -> str:
+    if not explained['per_ref']:
+        return ''
+    best_ref, _, best = max(explained['per_ref'], key=lambda t: t[2])
+    n_stretches = sum(len(g) for g in explained['unexplained'].values())
+    text = (f"{explained['any_fraction']:.0%} of the reconstruction ({explained['total'] - explained['unexplained_bp']:,} of "
+            f"{explained['total']:,} bp) aligns to at least one reference; the best single reference, "
+            f"{best_ref['row']['ref_id']}, explains {best:.0%}.")
+    if explained['unexplained_bp']:
+        text += (f" The other {explained['unexplained_bp']:,} bp ({n_stretches} stretch{'es' if n_stretches != 1 else ''}) "
+                 "align to none of them: to find what they are, search a plasmid database with a reference's "
+                 "<code>unaligned.fa</code> (e.g. <code>plasmid-surgery-refs</code>).")
+    if explained['any_fraction'] - best > 0.1:
+        text += (" The references together explain clearly more than any one of them: the reconstruction may combine "
+                 "sequence from more than one plasmid.")
+    return text
+
+
+def reconstruction_section(run, contigs, colours, labels, explained) -> str:
+    if not any('contig_start' in r for ref in run['references'] for r in ref['summary']):
+        return ('<p class="sub na">Not available: this run predates the contig coordinates in <code>summary.tsv</code>; '
+                'rerun plasmid-surgery to draw it.</p>')
+    return (f"""<p class="sub">The reconstruction's contigs end to end (longest first), with the parts of each that align to each
+reference (dark; alternative placements of repeats lighter), and the parts that align to none (red). Percentages
+are of the whole reconstruction. With <code>--features</code>, genes mostly in parts no reference explains are red.
+{reconstruction_summary(run, explained)}</p>
+<div class="scroll">{render_reconstruction(run, contigs, colours, labels, explained)}</div>""")
+
+
 # --- the page ---
 
 def fraction(v) -> str:
@@ -649,6 +853,7 @@ def render_report(run: dict, title: str = None) -> tuple[str, dict]:
     colours = contig_colours(contigs)
     all_ids = [c for c, _ in contigs] + [r['contig_id'] for ref in refs for r in (ref['contig_sources'] or [])]
     labels = short_labels(all_ids)
+    explained = reconstruction_explained(run, contigs)
     longest = max((r['length'] for r in refs), default=1)
     shared_scale = DRAW_WIDTH / longest
     sample = run['assessment'][0]['sample_id'] if run['assessment'] else ''
@@ -697,6 +902,8 @@ hovering over a contig highlights it everywhere.</p>
 <p class="sub">Positions on each reference (kb; − for reverse strand). "alt." counts alternative placements
 (e.g. repeat copies); a percentage is the fraction of the contig aligned, if not all of it.</p>
 <div class="matrix-wrap">{contig_matrix(run, contigs, colours)}</div>
+<h2>What the references explain</h2>
+{reconstruction_section(run, contigs, colours, labels, explained)}
 <h2>Maps</h2>
 <div class="controls"><span>Scale:</span>
 <label><input type="radio" name="scale" value="shared" checked> same for every reference</label>

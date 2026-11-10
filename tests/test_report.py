@@ -90,3 +90,30 @@ def test_report_flag(tmp_path, example):
     assert main(['--plasmid-reconstruction', str(recon), '--ref-plasmid', str(ref), '-o', str(out), '-p', 's1',
                  '--report', '--log-level', 'error']) == 0
     assert (out / 's1_report.html').exists() and (out / 'pREF1' / 's1_map.svg').exists()
+
+
+def test_reconstruction_view_chimera(tmp_path):
+    """A reconstruction that is 40 kb of one plasmid and 55 kb of another, against the first only:
+    the view says how much each reference explains and marks the rest, and genes in it."""
+    import random
+    import shutil
+    if shutil.which('minimap2') is None:
+        pytest.skip("minimap2 not on PATH")
+    from plasmid_surgery.__main__ import main
+    from tests.simulate import write_fasta, random_seq
+    rng = random.Random(7)
+    a, b = random_seq(rng, 60000), random_seq(rng, 70000)
+    write_fasta(tmp_path / 'recon.fa', [('hybrid_1', a[5000:45000] + b[10000:65000])])
+    write_fasta(tmp_path / 'refs.fa', [('refA', a), ('unrelated', random_seq(rng, 30000))])
+    (tmp_path / 'feats.bed').write_text("hybrid_1\t2000\t2900\tgeneA\t0\t+\nhybrid_1\t60000\t61200\tgeneB\t0\t+\n")
+    assert main(['--plasmid-reconstruction', str(tmp_path / 'recon.fa'), '--ref-plasmid', str(tmp_path / 'refs.fa'),
+                 '--features', str(tmp_path / 'feats.bed'), '--report', '-o', str(tmp_path / 'out'),
+                 '--log-level', 'warning']) == 0
+    html = (tmp_path / 'out' / 'report.html').read_text()
+    assert '42% of the reconstruction (40,000 of 95,000 bp) aligns to at least one reference' in html
+    assert 'The other 55,000 bp (1 stretch) align to none of them' in html
+    assert 'hybrid_1:40,001–95,000 (55,000 bp): aligns to none of the references' in html
+    assert 'Explaining none of it: unrelated' in html
+    assert 'geneB' in html and 'in a part no reference explains' in html
+    summary = {r['alignment_class']: r for r in report.read_tsv(tmp_path / 'out' / 'refA' / 'summary.tsv')}
+    assert (summary['placement']['contig_start'], summary['placement']['contig_end']) == ('0', '40000')
