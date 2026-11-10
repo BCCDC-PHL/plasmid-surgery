@@ -7,14 +7,50 @@ tool settles.
 
 ## Exploration (PLSDB set)
 
-- [ ] Second pass with near-relative references: the closest PLSDB plasmids that aren't the isolate's
-  own (closer to real use, where the database lacks the exact plasmid).
+Next: the reads input (below), then both passes (truth, near-relative) again with reads.
+
+- [x] **Near-relative references** (2026-11-10, `near/FINDINGS.md`, not committed): stand-ins up to
+  ~0.003 behave like the truth; drift grows from ~0.005; see the two Assessment items below.
+- [ ] **Rerun both passes (truth, near-relative) with reads**, once reads are an input. Reads are
+  downloaded again and deleted per isolate (storage); the assemblies are kept, so it's download ->
+  plasmid-surgery for every reference set -> delete, no reassembly.
 - [ ] Check read-truth concordance before using an isolate (one isolate's reads matched only 10-54% of
-  its published plasmids in every assembler).
+  its published plasmids in every assembler). Covered by reads breadth on the reference, once added.
+- [ ] Junction gaps (see Assessment): assemble the hybrid isolates' long reads with the production
+  long-read pipeline (incl. dnaapler) and check whether they persist. dragonflye already runs dnaapler,
+  and the gap sits at the rotated contig's ends (polishing a linearised circle?).
+- [ ] Negatives for gene placement: assemblies where a carbapenemase is genuinely chromosomal (closed
+  genome), from in-house hybrids or NCBI complete genomes. The PLSDB set only has positives.
 - [ ] Check what the bins matching no truth plasmid are (consistent across assemblers, so likely real
   replicons missing from the isolate's PLSDB set).
 - [ ] Full mob_recon vs. TaDReP comparison against a full PLSDB/RefSeq database (cluster).
 - [ ] Validate reference search on the cluster against a full PLSDB/RefSeq sketch.
+
+## Reads as input
+
+Optional short and/or long reads (minimap2 `-ax sr` / `map-ont`; samtools). Keep v1 to mapping, depth
+and spanning reads; leave variant calling to dedicated tools.
+
+- [ ] **Reads vs. reference:** breadth and depth over the reference, so losses split three ways:
+  not in the reads / not in the assembly / not in the bin. Also flags reads that don't match the
+  reference at all.
+- [ ] **Gap adjudication:** for each gap, are there reads covering the reference sequence there?
+  Yes: the assembler or binner lost it. No: the sample really differs from the reference.
+- [ ] **Circular junctions:** reads spanning a circular contig's join confirm circularity and the
+  exact join (settles the junction-gap question with evidence instead of a heuristic).
+- [ ] **Small plasmids missing from the assembly:** read breadth on small references, for plasmids a
+  long-read assembler dropped (2-4 kb ones lost by dragonflye here).
+- [ ] Later: read support (allele depth) at the SNPs/indels the assessment already reports.
+
+## Gene placement
+
+- [ ] **Is a chromosome-binned resistance gene really chromosomal?** Starting from the contig carrying
+  a gene (from `--features`), gather evidence for each placement: long reads spanning the gene and its
+  flanking mobile element into unambiguous chromosome or plasmid sequence (strongest; reads input);
+  depth relative to chromosome and plasmid bins (copy number); plasmid-DB and chromosome matches of the
+  contig plus flanks (`plasmid-surgery-refs`; a plasmid hit alone isn't enough, these elements also
+  insert into chromosomes); assembly-graph links (GFA, below). Check on the PLSDB positives (6-7
+  short-read carbapenemases in the chromosome bin per assembler) and on true negatives.
 
 ## Assessment
 
@@ -22,6 +58,7 @@ tool settles.
   plasmids almost all show one small "unique gap" (2-947 bp, mostly 7-31) exactly where the contig's
   two ends meet (imprecise circularisation). Recognise these (adjacent ends of the same contig,
   `circular=Y`/`circular=true` in the header) and report them as a junction indel, not a plain gap.
+  On hold until checked on the production long-read pipeline (Exploration); reads would settle it.
 - [ ] *(PLSDB set)* **Bins made of several references.** mob_recon put two complete truth plasmids in
   one bin (2 isolates, every assembler); the ranking lists both, but nothing says "this bin is A + B".
   Report a bin's composition: which contigs go to which reference, and the bin fraction explained by
@@ -30,6 +67,14 @@ tool settles.
   assembler, 45 kb NDM-5, 2-4 kb plasmids) were binned as chromosome, so there's no reconstruction to
   point the tool at. Document passing `chromosome.fasta` (or the assembly) as the reconstruction, or
   add an assembly-only mode.
+- [ ] *(PLSDB near-relative pass)* **Report the reference's distance** (mash distance / identity to the
+  reconstruction) and flag far references: from ~0.005 the reference's own differences dominate
+  coverage and gaps (-6% at 0.005, -19% at 0.02), though bin choice and the bin-vs-assembly split
+  stay robust.
+- [ ] *(PLSDB near-relative pass)* **Genes on the reconstruction but not on the reference.** The nearest
+  relative lacked the carbapenemase for 5 of 26 plasmids (10 of 18 at ~0.01). Report `--features`
+  genes that have no counterpart on the reference (same gene family), so gene status doesn't depend
+  on the reference carrying it.
 - [ ] **Structural consistency.** Walk placements around the circle and flag order breaks, strand
   flips and split alignments mapping to distant loci.
 - [ ] Intersect gaps with the ref's IS/transposon features (from `--ref-features`, or GenBank): this
@@ -37,7 +82,8 @@ tool settles.
 - [ ] Large insertions within alignments count as "aligned" contig bases; also write their sequence to
   the unaligned FASTA (or an insertions FASTA) so novel sequence is all in one place.
 - [ ] Per-contig SNP and indel counts.
-- [ ] Use contig read depth to estimate repeat copy number and check it against `num_placements`.
+- [ ] Use contig read depth to estimate repeat copy number and check it against `num_placements`
+  (also feeds gene placement).
 - [ ] A contig spanning *both* the origin and L/2 (longer than half the plasmid) is split either way;
   a third rotation, or merging split alignments adjacent on both query and ref, would cover it.
 - [ ] Overlap resolution is "first by ref_start wins"; consider preferring higher MAPQ / identity /
@@ -70,7 +116,8 @@ tool settles.
 - [ ] Validation: a set disjoint from every exploratory isolate, with questions and criteria fixed
   before looking at it. Optionally simulated reads (ART / InSilicoSeq) for exact truth.
 - [ ] Assembly graph (GFA) input: check whether contigs on either side of a gap are connected by a
-  graph path of about the right length (gap bridgeable vs. truly missing).
+  graph path of about the right length (gap bridgeable vs. truly missing), and which contigs a gene
+  contig links to (gene placement, short reads).
 - [ ] `mash screen` as an alternative reference screen, if Jaccard-derived estimates prove too noisy
   for small reconstructions.
 - [ ] Parse alignments into a typed record (dataclass) rather than dicts.

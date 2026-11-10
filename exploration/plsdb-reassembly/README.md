@@ -58,6 +58,23 @@ PLSDB=$PLSDB scripts/run_surgery.sh 8
 python scripts/summarise_surgery.py
 ```
 
+Near-relative references (the database lacks the isolate's own plasmids, as in real use):
+
+```bash
+cat truth/*.fasta > near/truth_all.fasta
+mash dist -p 16 -d 0.05 $PLSDB/plsdb_sketch.msh -i near/truth_all.fasta > near/mash_truth_vs_plsdb.tsv
+python scripts/select_near_refs.py --plsdb $PLSDB          # -> near/near_refs.tsv, refsets/<set>/
+for s in nearest d002 d005 d010 d020; do REFSET=$s PLSDB=$PLSDB scripts/run_surgery.sh 8; done
+python scripts/summarise_near.py                            # -> near/by_plasmid.tsv
+```
+
+`select_near_refs.py` excludes the isolate's own BioSample and plasmids PLSDB lists as identical to a
+truth plasmid, then picks one reference per truth plasmid for each set: `nearest` (smallest mash
+distance), and one per distance tier (`d002` 0.001-0.003, `d005` -0.0075, `d010` -0.015, `d020` -0.03;
+length 0.5-2x of the truth). `summarise_near.py` compares each truth plasmid's best bin (truth pass)
+against its stand-in reference. The `nearest` relative is often a sibling isolate from the same
+submission (distance ~0); the tiers show the drift as references get further.
+
 `$PLSDB` is a PLSDB 2024_05_31_v2 download (`nuccore.csv`, `biosample.csv`, `amr.tsv`, ...); the scripts
 default to `../data/plsdb`.
 
@@ -99,11 +116,14 @@ converts) plus its assembly working files.
 ```
 isolates.tsv, plasmids.tsv, runs.tsv
 scripts/            select_isolates.py, process_isolates.sh, fetch_data.py, run_surgery.sh,
-                    summarise_surgery.py; envs/*.yml; nosync/ (build: gcc -shared -fPIC -o libnosync.so nosync.c)
+                    summarise_surgery.py, select_near_refs.py, summarise_near.py; envs/*.yml; nosync/ (build: gcc -shared -fPIC -o libnosync.so nosync.c)
 truth/<bs>.fasta    published plasmids; truth.tsv.part (rows per plasmid)
 assemblies/{shovill,unicycler,dragonflye}/<bs>/contigs.fa (+ .gfa, logs)
 mob_recon/{shovill,unicycler,dragonflye}/<bs>/
 done/               per-step markers (<bs>.<step>; <bs> = all done)
 logs/               progress.log, per-step tool logs, reads_quality.tsv.part
 surgery/            plasmid-surgery outputs per <assembler>/<bs>/<bin>/; by_plasmid.tsv, by_bin.tsv
+near/               near_refs.tsv (chosen near relatives), mash distances, by_plasmid.tsv
+refsets/<set>/      near-relative references per isolate (<bs>.fasta) and their genes (<bs>.bed)
+surgery_near/<set>/ plasmid-surgery outputs against each near-relative set
 ```
