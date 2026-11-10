@@ -71,6 +71,7 @@ nav:
       - The scaffold: concepts/scaffold.md
       - Whole-assembly mode: concepts/whole-assembly.md
       - Feature annotations: concepts/features.md
+      - Reads: concepts/reads.md
       - Finding references: concepts/finding-references.md
   - Guides:
       - Assessing a reconstruction, end to end: guides/end-to-end.md
@@ -94,6 +95,7 @@ nav:
           - plasmid_surgery.assessment: reference/api/assessment.md
           - plasmid_surgery.context: reference/api/context.md
           - plasmid_surgery.features: reference/api/features.md
+          - plasmid_surgery.reads: reference/api/reads.md
           - plasmid_surgery.parsers: reference/api/parsers.md
           - plasmid_surgery.refs: reference/api/refs.md
           - plasmid_surgery.report: reference/api/report.md

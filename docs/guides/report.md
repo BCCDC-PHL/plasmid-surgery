@@ -20,7 +20,7 @@ results. It's drawn entirely from the files the run wrote.
 1. **References**, ranked by score, with the headline metrics for each.
 2. **Candidate references**, when they were found in a plasmid database (`--db-sketch`).
 3. **Where each contig is**: a matrix of the reconstruction's contigs against the references, with
-   each contig's position on each (or "not aligned").
+   each contig's position on each (or "not aligned"), and with reads, each contig's read depth.
 4. **Maps**: one linear map per reference, in rank order.
 
 ### Reading the maps
@@ -30,11 +30,12 @@ results. It's drawn entirely from the files the run wrote.
   <figcaption>The example's first reference, as saved in <code>pREF1/map.svg</code>.</figcaption>
 </figure>
 
-Each map has up to five tracks, drawn on the reference's coordinates:
+Each map has up to six tracks, drawn on the reference's coordinates:
 
 | Track | Shows |
 |---|---|
-| reference | The reference, with gaps: unique in red, repeat hatched. ▼ marks an insertion in a contig |
+| reference | The reference, with gaps: unique in red, repeat hatched. ▼ marks an insertion in a contig. With reads, each gap's tooltip says whether it's in the reads |
+| read depth | With `--short-reads` / `--long-reads`: mean read depth along the reference (scaled to twice the median; taller bars are clipped and darker), with stretches below `--min-read-depth` in red underneath: sequence the sample doesn't have. See [Reads](../concepts/reads.md) |
 | reconstruction | The reconstruction's contigs where they align, as arrows (pointing left on the reverse strand). Alternative placements (e.g. a collapsed repeat's other copies) are dashed outlines; contigs left out of the scaffold, dotted |
 | other assembly | With `--assembly`: the assembly's other contigs aligning to the reference, coloured by classification (`missed`, `shared`, `repeat`) |
 | ref features | With `--ref-features`: the reference's genes, coloured by status in the reconstruction (present, inferred, partial, absent) |

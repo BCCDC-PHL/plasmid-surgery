@@ -7,20 +7,22 @@ tool settles.
 
 ## Exploration (PLSDB set)
 
-Next: the reads input (below), then both passes (truth, near-relative) again with reads.
+Next: both passes (truth, near-relative) again with reads (reads input done, below).
 
 - [x] **Near-relative references** (2026-11-10, `near/FINDINGS.md`, not committed): stand-ins up to
   ~0.003 behave like the truth; drift grows from ~0.005; see the two Assessment items below. Repeated
   with a carbapenemase-plasmid database (`near-neighbor-with-carbapenemase/FINDINGS.md`): as close for
   carbapenemase plasmids, and more often carrying the gene; much worse for a sample's other plasmids.
-- [ ] **Rerun both passes (truth, near-relative) with reads**, once reads are an input. Reads are
-  downloaded again and deleted per isolate (storage); the assemblies are kept, so it's download ->
-  plasmid-surgery for every reference set -> delete, no reassembly.
+- [ ] **Rerun both passes (truth, near-relative) with reads**: `scripts/rerun_with_reads.sh` (download ->
+  plasmid-surgery for every reference set -> delete; ~7 min for SAMN40632425, the first isolate).
+  That isolate: the 2.0 kb plasmid dragonflye lacks is in the reads (~6,700x), so the assembler dropped
+  it; the short-read assemblies have it but no plasmid bin does.
 - [ ] Check read-truth concordance before using an isolate (one isolate's reads matched only 10-54% of
   its published plasmids in every assembler). Covered by reads breadth on the reference, once added.
 - [ ] Junction gaps (see Assessment): assemble the hybrid isolates' long reads with the production
   long-read pipeline (incl. dnaapler) and check whether they persist. dragonflye already runs dnaapler,
-  and the gap sits at the rotated contig's ends (polishing a linearised circle?).
+  and the gap sits at the rotated contig's ends (polishing a linearised circle?). With reads
+  (SAMN40632425), the 7-13 bp junction gaps are all in the reads: an assembly error, not biology.
 - [ ] Negatives for gene placement: assemblies where a carbapenemase is genuinely chromosomal (closed
   genome), from in-house hybrids or NCBI complete genomes. The PLSDB set only has positives.
 - [ ] Check what the bins matching no truth plasmid are (consistent across assemblers, so likely real
@@ -33,15 +35,20 @@ Next: the reads input (below), then both passes (truth, near-relative) again wit
 Optional short and/or long reads (minimap2 `-ax sr` / `map-ont`; samtools). Keep v1 to mapping, depth
 and spanning reads; leave variant calling to dedicated tools.
 
-- [ ] **Reads vs. reference:** breadth and depth over the reference, so losses split three ways:
-  not in the reads / not in the assembly / not in the bin. Also flags reads that don't match the
-  reference at all.
-- [ ] **Gap adjudication:** for each gap, are there reads covering the reference sequence there?
-  Yes: the assembler or binner lost it. No: the sample really differs from the reference.
+- [x] **Reads vs. reference:** breadth and depth over the reference (`--short-reads`, `--long-reads`;
+  `reads_depth.bedgraph`, `reads_ref_fraction_covered`), so losses split three ways: not in the reads /
+  not in the assembly / not in the bin. Also `reads_fraction` per ref feature.
+- [x] **Gap adjudication:** `gap_support.tsv` calls each reconstruction and assembly gap `in_reads` /
+  `not_in_reads` / `partly_in_reads`; `unique_gap_in_reads_length`, `assembly_unique_gap_in_reads_length`.
 - [ ] **Circular junctions:** reads spanning a circular contig's join confirm circularity and the
-  exact join (settles the junction-gap question with evidence instead of a heuristic).
-- [ ] **Small plasmids missing from the assembly:** read breadth on small references, for plasmids a
-  long-read assembler dropped (2-4 kb ones lost by dragonflye here).
+  exact join (needs reads aligned to the contigs, not only the reference).
+- [x] **Small plasmids missing from the assembly:** covered by reads breadth on the reference (with
+  `--assembly`: `assembly_unique_gap_in_reads_length`).
+- [x] Contig read depth from reads aligned to the assembly (`contig_depth.tsv`, `reads_depth` in
+  `contig_sources.tsv`; consistent across assemblers). Next: use it for gene placement's copy-number
+  evidence (relative to the chromosome bin).
+- [x] Read depth in the HTML report: a depth track under each map, read support in gap tooltips, read
+  columns in the tables, contig read depth in the contig table.
 - [ ] Later: read support (allele depth) at the SNPs/indels the assessment already reports.
 
 ## Gene placement

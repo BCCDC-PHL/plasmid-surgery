@@ -59,6 +59,7 @@ CONTIG_SOURCES_FIELDNAMES = [
     'num_placements',
     'mapq',
     'percent_identity',
+    'reads_depth',   # mean read depth of the contig, with reads ('NA' otherwise)
 ]
 
 # Assembly-context metrics, added to the assessment metrics ('NA' when no assembly is given)
@@ -290,6 +291,7 @@ def assess_assembly_context(reconstruction_contigs: list[dict], reconstruction_a
         'missed_contigs': missed_contigs,
         'placements': all_placements,
         'alternatives': all_alternatives,
+        'gaps': gaps,
         'contigs_by_id': aligned_contigs,
         'classifications': classifications,
         'locations': locations,

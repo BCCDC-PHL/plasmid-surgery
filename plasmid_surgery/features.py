@@ -49,6 +49,7 @@ REF_FEATURES_FIELDNAMES = FEATURE_FIELDNAMES + [
     'assembly_fraction',
     'assembly_status',
     'found_in',
+    'reads_fraction',   # with reads: fraction of the feature with read depth >= --min-read-depth
 ]
 
 SAMPLE_FEATURES_FIELDNAMES = FEATURE_FIELDNAMES + [
