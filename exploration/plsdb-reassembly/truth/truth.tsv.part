@@ -1,0 +1,75 @@
+SAMN08133260	NZ_CP025141.1	204734	circular	complete	blaKPC-2	yes
+SAMN08133260	NZ_CP025142.1	152230	circular	complete		no
+SAMN15868729	CP067958.1	205213	circular	complete	blaKPC-2	yes
+SAMN15868729	CP067959.1	202943	circular	complete		no
+SAMN15868729	CP067960.1	15271	circular	complete		no
+SAMN15869048	CP067569.1	163521	circular	complete	blaKPC-2	yes
+SAMN15869048	CP067570.1	43380	circular	complete		no
+SAMN15869048	CP067571.1	13841	circular	complete		no
+SAMN08148335	CP060663.1	322189	circular	complete	blaKPC-3	yes
+SAMN08148335	CP060664.1	85028	circular	complete		no
+SAMN08148335	CP060665.1	31807	linear	complete		no
+SAMN13951917	NZ_CP048372.1	90244	circular	complete		no
+SAMN13951917	NZ_CP048373.1	71270	circular	complete		no
+SAMN13951917	NZ_CP048374.1	10494	circular	complete	blaNDM-5	yes
+SAMN13951917	NZ_CP048375.1	3684	circular	complete		no
+SAMN24145077	NZ_CP104372.1	112409	circular	complete	blaNDM-1	yes
+SAMN38182635	NZ_CP143342.1	76286	circular	complete		no
+SAMN38182635	NZ_CP143343.1	46161	circular	complete	blaNDM-5	yes
+SAMN14640320	NZ_CP124805.1	174299	circular	complete		no
+SAMN14640320	NZ_CP124806.1	97591	circular	complete		no
+SAMN14640320	NZ_CP124807.1	63589	circular	complete	blaOXA-48	yes
+SAMN14640320	NZ_CP124808.1	3629	circular	complete		no
+SAMEA7962815	OW849357.1	294974	circular	complete	blaVIM-1	yes
+SAMEA7962815	OW849358.1	111400	circular	complete		no
+SAMEA7962815	OW849359.1	63589	circular	complete	blaOXA-48	yes
+SAMD00186875	NZ_AP022363.1	151326	circular	complete	blaIMP-6	yes
+SAMD00422603	NZ_AP025274.1	323125	circular	complete	blaIMP-1	yes
+SAMN27992998	CP132328.1	23582	circular	complete	blaVIM-1	yes
+SAMN12286998	NZ_CP043470.1	110962	circular	complete		no
+SAMN12286998	NZ_CP043471.1	32363	circular	complete		no
+SAMN12286998	NZ_CP043472.1	10879	circular	complete	blaOXA-72	yes
+SAMN40632425	NZ_CP155459.1	108159	circular	complete		no
+SAMN40632425	NZ_CP155460.1	78115	circular	complete	blaOXA	yes
+SAMN40632425	NZ_CP155461.1	14639	circular	complete		no
+SAMN40632425	NZ_CP155462.1	2025	circular	complete		no
+SAMD00173594	NZ_AP028423.1	108737	circular	complete	blaFRI-5	yes
+SAMN22837217	NZ_CP145155.1	16906	circular	complete	blaKPC-3	yes
+SAMN02786843	CP008789.1	133397	circular	complete		no
+SAMN02786843	CP008790.1	193725	circular	complete		no
+SAMN02786843	CP008791.1	205586	circular	complete	blaKPC-2	yes
+SAMN14227939	NZ_MK124610.1	171645	circular	complete	blaNDM-1	yes
+SAMN08027257	NZ_CP028536.2	45048	circular	complete	blaNDM-5	yes
+SAMN08027257	NZ_CP028537.1	328828	circular	complete		no
+SAMN24108481	NZ_CP090138.1	300750	circular	complete		no
+SAMN24108481	NZ_CP090139.1	53329	circular	complete	blaOXA-48	yes
+SAMN24108481	NZ_CP090140.1	6727	circular	complete		no
+SAMD00089496	NZ_AP018352.1	368940	circular	complete	blaIMP-1	yes
+SAMD00194412	NZ_AP021984.1	251197	circular	complete		no
+SAMD00194412	NZ_AP021985.1	110248	circular	complete	blaGES-24	yes
+SAMD00194412	NZ_AP021986.1	99872	circular	complete		no
+SAMD00194412	NZ_AP021987.1	80471	circular	complete		no
+SAMD00194412	NZ_AP021988.1	79525	circular	complete		no
+SAMD00194412	NZ_AP021989.1	53995	circular	complete		no
+SAMD00194412	NZ_AP021990.1	9286	circular	complete		no
+SAMD00194412	NZ_AP021991.1	8370	circular	complete		no
+SAMD00194412	NZ_AP021992.1	7404	circular	complete		no
+SAMD00194412	NZ_AP021993.1	6553	circular	complete		no
+SAMD00194412	NZ_AP021994.1	4100	circular	complete		no
+SAMD00194412	NZ_AP021995.1	3603	circular	complete		no
+SAMD00194412	NZ_AP021996.1	2653	circular	complete		no
+SAMD00194412	NZ_AP021997.1	2437	linear			no
+SAMN04014995	CP029717.1	315949	circular	complete		no
+SAMN04014995	CP029718.1	158987	circular	complete	blaVIM-1	yes
+SAMN04014995	CP029719.1	138933	circular	complete		no
+SAMN04014995	CP029720.1	65672	circular	complete		no
+SAMN04014995	CP029721.1	18990	circular	complete		no
+SAMN37485474	NZ_CP135152.1	76777	circular	complete		no
+SAMN37485474	NZ_CP135153.1	67453	circular	complete		no
+SAMN37485474	NZ_CP135154.1	62958	circular	complete		no
+SAMN37485474	NZ_CP135155.1	19700	circular	complete	blaOXA-58	yes
+SAMN37485474	NZ_CP135156.1	11264	circular	complete		no
+SAMN37485474	NZ_CP135157.1	10555	circular	complete		no
+SAMN37485474	NZ_CP135158.1	9108	circular	complete		no
+SAMN16982406	NZ_CP071948.1	159998	circular	complete	blaSIM-1	yes
+SAMN16982406	NZ_CP071949.1	153270	circular	complete	blaSIM-1	yes

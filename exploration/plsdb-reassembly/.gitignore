@@ -1,0 +1,22 @@
+# Only the selection, scripts and small provenance tables are committed; assemblies, mob_recon and
+# plasmid-surgery outputs, logs, reads and caches are regenerable (see README.md) and stay local.
+/*
+!/.gitignore
+!/README.md
+!/isolates.tsv
+!/plasmids.tsv
+!/runs.tsv
+!/scripts/
+/scripts/nosync/libnosync.so
+!/truth/
+/truth/*
+!/truth/truth.tsv.part
+!/logs/
+/logs/*
+!/logs/reads_quality.tsv.part
+!/near/
+/near/*
+!/near/near_refs.tsv
+!/near-neighbor-with-carbapenemase/
+/near-neighbor-with-carbapenemase/*
+!/near-neighbor-with-carbapenemase/near_refs.tsv
