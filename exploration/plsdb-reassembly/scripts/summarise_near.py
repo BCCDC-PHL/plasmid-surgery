@@ -30,10 +30,11 @@ def read_tsv(path):
         return list(csv.DictReader(f, delimiter='\t'))
 
 
-def main(root='.'):
-    os.chdir(root)
+def main(near_dir='near', surgery_dir='surgery_near', refsets_dir='refsets'):
+    """Defaults: the PLSDB near-relative pass. Other passes: their own directories, e.g.
+    summarise_near.py near-neighbor-with-carbapenemase{,/surgery,/refsets}"""
     truth_rows = {(r['assembler'], r['ref_id']): r for r in read_tsv('surgery/by_plasmid.tsv')}
-    near = read_tsv('near/near_refs.tsv')
+    near = read_tsv(f'{near_dir}/near_refs.tsv')
     ref_genes = {}   # (set, bs) -> {ref acc: set of gene symbols}
     for r in near:
         if r['set'] == 'none':
@@ -41,7 +42,7 @@ def main(root='.'):
         key = (r['set'], r['biosample'])
         if key not in ref_genes:
             genes = defaultdict(set)
-            bed = f"refsets/{r['set']}/{r['biosample']}.bed"
+            bed = f"{refsets_dir}/{r['set']}/{r['biosample']}.bed"
             if os.path.exists(bed):
                 with open(bed) as f:
                     for line in f:
@@ -52,14 +53,14 @@ def main(root='.'):
     rows = []
     for n in near:
         s = n['set']
-        if s == 'none' or not os.path.isdir(f'surgery_near/{s}'):
+        if s == 'none' or not os.path.isdir(f'{surgery_dir}/{s}'):
             continue
         for a in ('shovill', 'unicycler', 'dragonflye'):
             t = truth_rows.get((a, n['truth_acc']))
             if not t or t.get('best_bin', 'none') == 'none':
                 continue
             b = t['best_bin']
-            path = f"surgery_near/{s}/{a}/{n['biosample']}/{b}/assessment.tsv"
+            path = f"{surgery_dir}/{s}/{a}/{n['biosample']}/{b}/assessment.tsv"
             if not os.path.exists(path):
                 continue
             arows = read_tsv(path)
@@ -68,8 +69,8 @@ def main(root='.'):
                 continue
             # Which bin would the stand-in pick? (bin covering most of it, as for the truth)
             best_near_bin, best_cov = None, -1
-            for p in sorted(os.listdir(f"surgery_near/{s}/{a}/{n['biosample']}")):
-                ap = f"surgery_near/{s}/{a}/{n['biosample']}/{p}/assessment.tsv"
+            for p in sorted(os.listdir(f"{surgery_dir}/{s}/{a}/{n['biosample']}")):
+                ap = f"{surgery_dir}/{s}/{a}/{n['biosample']}/{p}/assessment.tsv"
                 if not os.path.exists(ap):
                     continue
                 for r in read_tsv(ap):
@@ -79,7 +80,7 @@ def main(root='.'):
             on_ref = ref_genes.get((s, n['biosample']), {}).get(n['ref_acc'], set())
             carb_near = ''
             if carbs:
-                feats = f"surgery_near/{s}/{a}/{n['biosample']}/{b}/{n['ref_acc']}/ref_features.tsv"
+                feats = f"{surgery_dir}/{s}/{a}/{n['biosample']}/{b}/{n['ref_acc']}/ref_features.tsv"
                 st = []
                 if os.path.exists(feats):
                     fams = {family(c) for c in carbs}
@@ -101,7 +102,7 @@ def main(root='.'):
                 carb_truth=t.get('carbapenemase_status', ''), carb_near=carb_near))
 
     fields = list(dict.fromkeys(k for r in rows for k in r))
-    with open('near/by_plasmid.tsv', 'w', newline='') as f:
+    with open(f'{near_dir}/by_plasmid.tsv', 'w', newline='') as f:
         w = csv.DictWriter(f, fields, delimiter='\t', lineterminator='\n')
         w.writeheader(); w.writerows(rows)
 

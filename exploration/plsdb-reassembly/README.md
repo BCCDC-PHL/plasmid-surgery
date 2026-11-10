@@ -75,6 +75,23 @@ length 0.5-2x of the truth). `summarise_near.py` compares each truth plasmid's b
 against its stand-in reference. The `nearest` relative is often a sibling isolate from the same
 submission (distance ~0); the tiers show the drift as references get further.
 
+The same against a carbapenemase-plasmid database (every PLSDB plasmid with an AMRFinderPlus
+CARBAPENEM hit, 5,973), as a stand-in for a curated in-house database:
+
+```bash
+DB=../data/plsdb_carbapenemase; N=near-neighbor-with-carbapenemase
+python scripts/build_carbapenemase_db.py --plsdb $PLSDB -o $DB   # plasmids.fasta, features.bed, plasmids.tsv
+samtools faidx $DB/plasmids.fasta
+mash sketch -p 16 -k 21 -s 1000 -i -o $DB/plasmids $DB/plasmids.fasta
+mkdir -p $N && mash dist -p 16 -d 0.05 $DB/plasmids.msh -i near/truth_all.fasta > $N/mash_truth_vs_db.tsv
+python scripts/select_near_refs.py --plsdb $PLSDB --mash $N/mash_truth_vs_db.tsv --db-fasta $DB/plasmids.fasta \
+  --db-bed $DB/features.bed --out $N/refsets --table $N/near_refs.tsv
+for s in nearest d002 d005 d010 d020; do
+  REFSETS=$N/refsets REFSET=$s OUT=$N/surgery/$s PLSDB=$PLSDB scripts/run_surgery.sh 8
+done
+python scripts/summarise_near.py $N $N/surgery $N/refsets       # -> $N/by_plasmid.tsv
+```
+
 `$PLSDB` is a PLSDB 2024_05_31_v2 download (`nuccore.csv`, `biosample.csv`, `amr.tsv`, ...); the scripts
 default to `../data/plsdb`.
 
@@ -116,7 +133,8 @@ converts) plus its assembly working files.
 ```
 isolates.tsv, plasmids.tsv, runs.tsv
 scripts/            select_isolates.py, process_isolates.sh, fetch_data.py, run_surgery.sh,
-                    summarise_surgery.py, select_near_refs.py, summarise_near.py; envs/*.yml; nosync/ (build: gcc -shared -fPIC -o libnosync.so nosync.c)
+                    summarise_surgery.py, select_near_refs.py, summarise_near.py,
+                    build_carbapenemase_db.py; envs/*.yml; nosync/ (build: gcc -shared -fPIC -o libnosync.so nosync.c)
 truth/<bs>.fasta    published plasmids; truth.tsv.part (rows per plasmid)
 assemblies/{shovill,unicycler,dragonflye}/<bs>/contigs.fa (+ .gfa, logs)
 mob_recon/{shovill,unicycler,dragonflye}/<bs>/
@@ -126,4 +144,6 @@ surgery/            plasmid-surgery outputs per <assembler>/<bs>/<bin>/; by_plas
 near/               near_refs.tsv (chosen near relatives), mash distances, by_plasmid.tsv
 refsets/<set>/      near-relative references per isolate (<bs>.fasta) and their genes (<bs>.bed)
 surgery_near/<set>/ plasmid-surgery outputs against each near-relative set
+near-neighbor-with-carbapenemase/  the same against the carbapenemase-plasmid database (near_refs.tsv,
+                    refsets/, surgery/<set>/, by_plasmid.tsv); the database is in ../data/plsdb_carbapenemase/
 ```

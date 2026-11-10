@@ -17,3 +17,6 @@
 !/near/
 /near/*
 !/near/near_refs.tsv
+!/near-neighbor-with-carbapenemase/
+/near-neighbor-with-carbapenemase/*
+!/near-neighbor-with-carbapenemase/near_refs.tsv

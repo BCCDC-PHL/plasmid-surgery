@@ -10,7 +10,9 @@ tool settles.
 Next: the reads input (below), then both passes (truth, near-relative) again with reads.
 
 - [x] **Near-relative references** (2026-11-10, `near/FINDINGS.md`, not committed): stand-ins up to
-  ~0.003 behave like the truth; drift grows from ~0.005; see the two Assessment items below.
+  ~0.003 behave like the truth; drift grows from ~0.005; see the two Assessment items below. Repeated
+  with a carbapenemase-plasmid database (`near-neighbor-with-carbapenemase/FINDINGS.md`): as close for
+  carbapenemase plasmids, and more often carrying the gene; much worse for a sample's other plasmids.
 - [ ] **Rerun both passes (truth, near-relative) with reads**, once reads are an input. Reads are
   downloaded again and deleted per isolate (storage); the assemblies are kept, so it's download ->
   plasmid-surgery for every reference set -> delete, no reassembly.

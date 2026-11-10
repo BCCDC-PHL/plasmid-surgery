@@ -19,7 +19,9 @@ Writes:
   near/near_refs.tsv               one row per (set, truth plasmid): chosen reference, distance, length
   refsets/<set>/<bs>.fasta         the isolate's references for that set (deduplicated)
   refsets/<set>/<bs>.bed           their AMRFinderPlus genes from PLSDB amr.tsv (--ref-features)
-Sequences come from PLSDB's sequences.fasta.bz2 (one streaming pass).
+Sequences come from PLSDB's sequences.fasta.bz2 (one streaming pass), or with --db-fasta from another
+database's FASTA (indexed: samtools faidx) and --db-bed its features, e.g. the carbapenemase-plasmid
+database from build_carbapenemase_db.py (its mash distances in --mash).
 """
 import argparse
 import bz2
@@ -40,6 +42,8 @@ def main():
     p.add_argument('--truth', default='truth/truth.tsv.part')
     p.add_argument('--out', default='refsets')
     p.add_argument('--table', default='near/near_refs.tsv')
+    p.add_argument('--db-fasta', help='database FASTA with a .fai (default: PLSDB sequences.fasta.bz2)')
+    p.add_argument('--db-bed', help="database features as BED (default: PLSDB amr.tsv's AMRFinderPlus hits)")
     a = p.parse_args()
 
     truth = {}   # acc -> (bs, length, carbapenemases)
@@ -105,16 +109,29 @@ def main():
 
     # Sequences: one pass through PLSDB's FASTA
     wanted = {r['ref_acc'] for r in rows if r['set'] != 'none'}
-    seqs, keep, name = {}, False, None
-    with bz2.open(os.path.join(a.plsdb, 'sequences.fasta.bz2'), 'rt') as f:
-        for line in f:
-            if line.startswith('>'):
-                name = line[1:].split()[0]
-                keep = name in wanted
-                if keep:
-                    seqs[name] = [line]
-            elif keep:
-                seqs[name].append(line)
+    seqs = {}
+    if a.db_fasta:
+        with open(a.db_fasta + '.fai') as fai, open(a.db_fasta) as fa:
+            for line in fai:
+                name, length, offset, linebases, linewidth = line.split('\t')[:5]
+                if name not in wanted:
+                    continue
+                length, offset, linebases, linewidth = map(int, (length, offset, linebases, linewidth))
+                fa.seek(offset)
+                nlines = -(-length // linebases)
+                raw = fa.read(length + nlines * (linewidth - linebases))
+                seqs[name] = [f'>{name}\n', raw.rstrip('\n') + '\n']
+    else:
+        keep, name = False, None
+        with bz2.open(os.path.join(a.plsdb, 'sequences.fasta.bz2'), 'rt') as f:
+            for line in f:
+                if line.startswith('>'):
+                    name = line[1:].split()[0]
+                    keep = name in wanted
+                    if keep:
+                        seqs[name] = [line]
+                elif keep:
+                    seqs[name].append(line)
     missing = wanted - seqs.keys()
     if missing:
         print(f'warning: {len(missing)} references not in sequences.fasta.bz2: {sorted(missing)[:5]}', file=sys.stderr)
@@ -125,10 +142,17 @@ def main():
             by_set[r['set']][r['biosample']].append(r['ref_acc'])
     beds = defaultdict(list)
     accs = {acc for s in by_set.values() for refs in s.values() for acc in refs}
-    with open(os.path.join(a.plsdb, 'amr.tsv'), newline='') as f:
-        for row in csv.reader(f, delimiter='\t'):
-            if row[0] in accs and row[1] == 'amrfinderplus':
-                beds[row[0]].append((row[0], int(row[8]) - 1, int(row[9]), row[3], '0', row[11]))
+    if a.db_bed:
+        with open(a.db_bed) as f:
+            for line in f:
+                row = line.rstrip('\n').split('\t')
+                if row[0] in accs:
+                    beds[row[0]].append((row[0], int(row[1]), int(row[2]), row[3], row[4], row[5]))
+    else:
+        with open(os.path.join(a.plsdb, 'amr.tsv'), newline='') as f:
+            for row in csv.reader(f, delimiter='\t'):
+                if row[0] in accs and row[1] == 'amrfinderplus':
+                    beds[row[0]].append((row[0], int(row[8]) - 1, int(row[9]), row[3], '0', row[11]))
     for s, by_bs in by_set.items():
         os.makedirs(os.path.join(a.out, s), exist_ok=True)
         for bs, refs in by_bs.items():

@@ -1,0 +1,190 @@
+set	biosample	truth_acc	truth_length	truth_carbapenemases	ref_acc	mash_dist	shared_hashes	ref_length	ref_description
+nearest	SAMD00089496	NZ_AP018352.1	368940	blaIMP-1	NZ_AP025785.1	2.38274e-05	999	369656	Enterobacter hormaechei strain FUJ80012 plasmid pFJMB80012_1, complete sequence
+d002	SAMD00089496	NZ_AP018352.1	368940	blaIMP-1	NZ_AP025872.1	0.00170624	932	360179	Enterobacter hormaechei strain FUJ80152 plasmid pFJMB80152_1, complete sequence
+d005	SAMD00089496	NZ_AP018352.1	368940	blaIMP-1	NZ_AP025834.1	0.00439372	838	314238	Enterobacter hormaechei strain FUJ80181 plasmid pFJMB80181_1, complete sequence
+d010	SAMD00089496	NZ_AP018352.1	368940	blaIMP-1	NZ_CP070530.1	0.0113974	649	278187	Enterobacter hormaechei strain EC48293 plasmid p48293_KPC, complete sequence
+d020	SAMD00089496	NZ_AP018352.1	368940	blaIMP-1	CP123377.1	0.0211548	472	323144	Enterobacter ludwigii strain CRE2104-31 plasmid unnamed1, complete sequence
+nearest	SAMD00173594	NZ_AP028423.1	108737	blaFRI-5	NZ_LC467982.1	0.000119496	995	108745	Enterobacter asburiae strain Keio CL MIC 0002 plasmid pKeioCLMIC23, complete sequence
+nearest	SAMD00186875	NZ_AP022363.1	151326	blaIMP-6	NZ_AP022361.1	0.000880953	964	148581	Escherichia coli strain E301 plasmid pE301_IMP6, complete sequence
+d002	SAMD00186875	NZ_AP022363.1	151326	blaIMP-6	NZ_AP022369.1	0.00181236	928	149826	Escherichia coli strain E319 plasmid pE319_IMP6, complete sequence
+d005	SAMD00186875	NZ_AP022363.1	151326	blaIMP-6	NZ_AP022364.1	0.00597612	789	120859	Escherichia coli strain E309 plasmid pE309_IMP6, complete sequence
+d010	SAMD00186875	NZ_AP022363.1	151326	blaIMP-6	NZ_CP095660.1	0.0120298	635	133308	Escherichia coli strain dm882b plasmid p_dm882b_NDM5, complete sequence
+d020	SAMD00186875	NZ_AP022363.1	151326	blaIMP-6	NZ_MW057772.1	0.0211548	472	142829	Escherichia coli strain BIDMC20a plasmid pCRE BIDMC20a, complete sequence
+nearest	SAMD00194412	NZ_AP021984.1	251197		NZ_OL763373.1	0.0399018	276	380891	Escherichia coli strain EC1108 plasmid p1108-NDM_Vir, complete sequence
+nearest	SAMD00194412	NZ_AP021985.1	110248	blaGES-24	NZ_AP022018.1	0.0376857	293	111708	Klebsiella quasipneumoniae strain WP3-S18-ESBL-03 plasmid pWP3-S18-ESBL-03_4, complete sequence
+none	SAMD00194412	NZ_AP021986.1	99872						
+none	SAMD00194412	NZ_AP021987.1	80471						
+nearest	SAMD00194412	NZ_AP021988.1	79525		NZ_CP090395.1	0.0404475	272	171626	Klebsiella pneumoniae strain YZH2429 plasmid pYUYZH2429-2, complete sequence
+nearest	SAMD00194412	NZ_AP021989.1	53995		NZ_CP038279.1	0.04288	255	35262	Raoultella ornithinolytica strain WLK218 plasmid pWLK-KPC, complete sequence
+nearest	SAMD00194412	NZ_AP021990.1	9286		NZ_CP050368.1	0.0388388	284	6812	Klebsiella pneumoniae strain 47733 plasmid p47733_OXA_181, complete sequence
+nearest	SAMD00194412	NZ_AP021991.1	8370		NZ_CP050368.1	0.0387085	285	6812	Klebsiella pneumoniae strain 47733 plasmid p47733_OXA_181, complete sequence
+nearest	SAMD00194412	NZ_AP021992.1	7404		NZ_CP050368.1	0.0341361	323	6812	Klebsiella pneumoniae strain 47733 plasmid p47733_OXA_181, complete sequence
+nearest	SAMD00194412	NZ_AP021993.1	6553		NZ_CP050368.1	0.0293293	370	6812	Klebsiella pneumoniae strain 47733 plasmid p47733_OXA_181, complete sequence
+d020	SAMD00194412	NZ_AP021993.1	6553		NZ_CP050368.1	0.0293293	370	6812	Klebsiella pneumoniae strain 47733 plasmid p47733_OXA_181, complete sequence
+none	SAMD00194412	NZ_AP021994.1	4100						
+none	SAMD00194412	NZ_AP021995.1	3603						
+none	SAMD00194412	NZ_AP021996.1	2653						
+none	SAMD00194412	NZ_AP021997.1	2437						
+none	SAMD00422603	NZ_AP025274.1	323125	blaIMP-1					
+nearest	SAMEA7962815	OW849357.1	294974	blaVIM-1	OW968418.1	0.000532603	978	281280	Enterobacter cloacae isolate 764 genome assembly, plasmid: P1
+d002	SAMEA7962815	OW849357.1	294974	blaVIM-1	NZ_CP041734.1	0.00165343	934	276520	Enterobacter hormaechei subsp. steigerwaltii strain ME-1 plasmid pME-1a, complete sequence
+d005	SAMEA7962815	OW849357.1	294974	blaVIM-1	NZ_CP089400.1	0.00495906	820	316115	Klebsiella oxytoca strain Kox26 plasmid pKOX26_1, complete sequence
+d010	SAMEA7962815	OW849357.1	294974	blaVIM-1	CP109752.1	0.0105688	668	347681	Enterobacter hormaechei strain 2017-45-136-01-01 plasmid p2017-45-136-01-01_1, complete sequence
+d020	SAMEA7962815	OW849357.1	294974	blaVIM-1	NZ_OL518976.1	0.0208822	476	454926	Leclercia sp. 29361 plasmid p29361-HI2, complete sequence
+nearest	SAMEA7962815	OW849358.1	111400		NZ_AP018351.1	0.0250005	420	112622	Enterobacter hormaechei strain TUM10695 plasmid pMTY10695_IncFIB, complete sequence
+d020	SAMEA7962815	OW849358.1	111400		NZ_AP018351.1	0.0250005	420	112622	Enterobacter hormaechei strain TUM10695 plasmid pMTY10695_IncFIB, complete sequence
+nearest	SAMEA7962815	OW849359.1	63589	blaOXA-48	NZ_CP126760.1	2.38274e-05	999	63589	Enterobacter hormaechei strain 21KM3135 plasmid pKM35_OXA48, complete sequence
+d002	SAMEA7962815	OW849359.1	63589	blaOXA-48	CP114756.1	0.00173271	931	67278	Klebsiella pneumoniae strain ST39 plasmid pKp189_3, complete sequence
+d005	SAMEA7962815	OW849359.1	63589	blaOXA-48	CM017776.1	0.00476862	826	59941	Klebsiella pneumoniae strain HEE2017 plasmid pOXA48, complete sequence, whole genome shotgun sequence
+d010	SAMEA7962815	OW849359.1	63589	blaOXA-48	NZ_LC545850.1	0.0106116	667	57022	Klebsiella variicola strain Kv-MW05 isolate Kv-MW05 plasmid pKv-MW05_OXA, complete sequence
+d020	SAMEA7962815	OW849359.1	63589	blaOXA-48	NZ_CP061958.1	0.0202797	485	109135	Klebsiella pneumoniae strain IR5726 plasmid unnamed1, complete sequence
+nearest	SAMN02786843	CP008789.1	133397		CP026274.1	0.0433296	252	235655	Klebsiella oxytoca strain KONIH4 plasmid pKPC-4b66, complete sequence
+nearest	SAMN02786843	CP008790.1	193725		NZ_CP026225.1	0.004991	819	178635	Aeromonas sp. ASNIH3 plasmid pKPC-8e09, complete sequence
+d005	SAMN02786843	CP008790.1	193725		NZ_CP026225.1	0.004991	819	178635	Aeromonas sp. ASNIH3 plasmid pKPC-8e09, complete sequence
+d010	SAMN02786843	CP008790.1	193725		NZ_OQ821144.1	0.00981378	686	195919	Citrobacter freundii strain 24A18CPO029 plasmid p24A18029_B_KPC, complete sequence
+d020	SAMN02786843	CP008790.1	193725		NZ_CP096180.1	0.0212234	471	183653	Escherichia coli strain dm884b plasmid p_dm884b_OXA-181, complete sequence
+nearest	SAMN02786843	CP008791.1	205586	blaKPC-2	CP067618.1	0.0211548	472	131807	Klebsiella pneumoniae strain ARLG-4861 plasmid pC592_2, complete sequence
+d020	SAMN02786843	CP008791.1	205586	blaKPC-2	CP067618.1	0.0211548	472	131807	Klebsiella pneumoniae strain ARLG-4861 plasmid pC592_2, complete sequence
+nearest	SAMN04014995	CP029717.1	315949		NC_012556.1	0.0025468	901	324503	Enterobacter cloacae plasmid pEC-IMPQ, complete sequence
+d002	SAMN04014995	CP029717.1	315949		NC_012556.1	0.0025468	901	324503	Enterobacter cloacae plasmid pEC-IMPQ, complete sequence
+d005	SAMN04014995	CP029717.1	315949		NZ_CP091493.1	0.00470559	828	362923	Enterobacter cloacae complex sp. ECL405 plasmid unnamed1, complete sequence
+d010	SAMN04014995	CP029717.1	315949		NZ_CP050163.1	0.0107405	664	289268	Escherichia coli plasmid Carbapenemase(KPC-2)_IncHI2, complete sequence
+d020	SAMN04014995	CP029717.1	315949		NZ_AP025920.1	0.0212234	471	372129	Enterobacter hormaechei strain FUJ80378 plasmid pFJMB80378_1, complete sequence
+nearest	SAMN04014995	CP029718.1	158987	blaVIM-1	NZ_CP032168.1	0.0	1000	158987	Klebsiella pneumoniae strain AR_0076 plasmid unnamed1, complete sequence
+d002	SAMN04014995	CP029718.1	158987	blaVIM-1	NZ_CP031584.1	0.00126265	949	164082	Klebsiella pneumoniae strain N4b plasmid pIncAC2-1502320, complete sequence
+d005	SAMN04014995	CP029718.1	158987	blaVIM-1	NZ_LN831185.1	0.004991	819	167382	Vibrio cholerae isolate V. cholerae 116-17a plasmid pNDM-116-17, complete sequence
+d010	SAMN04014995	CP029718.1	158987	blaVIM-1	NZ_KU726616.1	0.0105261	669	137952	Salmonella enterica subsp. enterica serovar Stanley strain LS001 plasmid pHS36-NDM, complete sequence
+d020	SAMN04014995	CP029718.1	158987	blaVIM-1	NZ_CP076553.1	0.0211548	472	162180	Klebsiella pneumoniae strain 19PDR22 plasmid p19PDR22-KPC3, complete sequence
+nearest	SAMN04014995	CP029719.1	138933		CP109680.1	0.0353885	312	155247	Enterobacter cloacae strain 49483 plasmid pECLA, complete sequence
+nearest	SAMN04014995	CP029720.1	65672		NZ_CP114310.1	0.00454897	833	66959	Klebsiella oxytoca strain 2022CK-00499 plasmid unnamed2, complete sequence
+d005	SAMN04014995	CP029720.1	65672		NZ_CP114310.1	0.00454897	833	66959	Klebsiella oxytoca strain 2022CK-00499 plasmid unnamed2, complete sequence
+d010	SAMN04014995	CP029720.1	65672		NZ_CP138563.1	0.0104835	670	76517	Klebsiella pneumoniae strain KP3594 plasmid pKPC_NDM3594, complete sequence
+d020	SAMN04014995	CP029720.1	65672		NZ_CP137377.1	0.0214305	468	68942	Klebsiella pneumoniae strain KP58_WM2_48.22_ST147_NDM5_OXA48 plasmid pKP58_OXA48, complete sequence
+none	SAMN04014995	CP029721.1	18990						
+nearest	SAMN08027257	NZ_CP028536.2	45048	blaNDM-5	NZ_CP117992.1	4.76906e-05	998	45048	Enterobacter hormaechei isolate 1023017620-1 plasmid unnamed, complete sequence
+d002	SAMN08027257	NZ_CP028536.2	45048	blaNDM-5	NZ_CP093461.1	0.00173271	931	48523	Klebsiella pneumoniae strain VA684 plasmid pVA684-49, complete sequence
+d005	SAMN08027257	NZ_CP028536.2	45048	blaNDM-5	NZ_MK372381.1	0.00473708	827	52565	Klebsiella pneumoniae strain ABC52 plasmid pABC52-NDM-1, complete sequence
+d010	SAMN08027257	NZ_CP028536.2	45048	blaNDM-5	CP080709.1	0.0106116	667	54492	Klebsiella pneumoniae strain VA21335_hybrid plasmid pIncX3, complete sequence
+d020	SAMN08027257	NZ_CP028536.2	45048	blaNDM-5	NC_019161.1	0.0222766	456	42447	Klebsiella pneumoniae plasmid pKPC-NY79, complete sequence
+nearest	SAMN08027257	NZ_CP028537.1	328828		NZ_CP101561.1	0.0203459	484	318780	Klebsiella pneumoniae subsp. pneumoniae strain KP67 plasmid p67_1, complete sequence
+d020	SAMN08027257	NZ_CP028537.1	328828		NZ_CP068019.1	0.0212234	471	208610	Salmonella enterica strain 1722 plasmid unnamed1, complete sequence
+nearest	SAMN08133260	NZ_CP025141.1	204734	blaKPC-2	NZ_CP109734.1	0.000167546	993	203863	Providencia stuartii strain 2017-45-35 plasmid p2017-45-35, complete sequence
+d002	SAMN08133260	NZ_CP025141.1	204734	blaKPC-2	NZ_CP018956.1	0.00128842	948	216226	Escherichia coli strain Ecol_316 plasmid pEC316_KPC, complete sequence
+d005	SAMN08133260	NZ_CP025141.1	204734	blaKPC-2	CP109689.1	0.00544411	805	178420	Klebsiella pneumoniae strain 2017-45-84 plasmid p2017-45-84_2, complete sequence
+d010	SAMN08133260	NZ_CP025141.1	204734	blaKPC-2	NZ_KR559890.1	0.0106116	667	153958	Enterobacter cloacae strain Ecl4873 plasmid pEcl-Gr4873, complete sequence
+d020	SAMN08133260	NZ_CP025141.1	204734	blaKPC-2	NZ_KY887594.1	0.0211548	472	215528	Klebsiella pneumoniae strain Kp55 plasmid pKp55, complete sequence
+nearest	SAMN08133260	NZ_CP025142.1	152230		NZ_CP025148.1	0.00154832	938	161986	Klebsiella pneumoniae strain KP1766 plasmid KP1766_p2, complete sequence
+d002	SAMN08133260	NZ_CP025142.1	152230		NZ_CP025148.1	0.00154832	938	161986	Klebsiella pneumoniae strain KP1766 plasmid KP1766_p2, complete sequence
+d010	SAMN08133260	NZ_CP025142.1	152230		CP067569.1	0.0134036	606	163521	Klebsiella pneumoniae strain ARLG-4877 plasmid pC680_1, complete sequence
+d020	SAMN08133260	NZ_CP025142.1	152230		NZ_CP083008.1	0.0212234	471	211349	Klebsiella pneumoniae strain 6711.43 plasmid p1-6711.43-KPC2, complete sequence
+nearest	SAMN08148335	CP060663.1	322189	blaKPC-3	NZ_CP073055.1	9.55247e-05	996	324410	Klebsiella pneumoniae strain MGH83 plasmid unnamed1, complete sequence
+d005	SAMN08148335	CP060663.1	322189	blaKPC-3	CP011635.1	0.00531349	809	332956	Klebsiella oxytoca strain CAV1374 plasmid pKPC_CAV1374, complete sequence
+d010	SAMN08148335	CP060663.1	322189	blaKPC-3	NZ_CP139849.1	0.0101878	677	370755	Citrobacter freundii strain UKJ86 plasmid pUKJ86_1, complete sequence
+d020	SAMN08148335	CP060663.1	322189	blaKPC-3	NZ_CP072962.1	0.0220623	459	423968	Enterobacter sp. MGH 14 plasmid unnamed1, complete sequence
+nearest	SAMN08148335	CP060664.1	85028		NZ_CP073050.1	0.00712406	756	113048	Citrobacter sp. MGH105 plasmid unnamed2, complete sequence
+d005	SAMN08148335	CP060664.1	85028		NZ_CP073050.1	0.00712406	756	113048	Citrobacter sp. MGH105 plasmid unnamed2, complete sequence
+d010	SAMN08148335	CP060664.1	85028		CP060655.1	0.0119383	637	111407	Citrobacter freundii strain MGH283 plasmid unnamed1, complete sequence
+d020	SAMN08148335	CP060664.1	85028		NZ_AP019671.1	0.0212234	471	148619	Raoultella ornithinolytica strain GSH0205-8M-1 plasmid pGSH0205-8M-1-2, complete sequence
+none	SAMN08148335	CP060665.1	31807						
+nearest	SAMN12286998	NZ_CP043470.1	110962		NZ_CP039519.1	0.00316966	879	127784	Acinetobacter baumannii strain TG22653 plasmid pTG22653, complete sequence
+d005	SAMN12286998	NZ_CP043470.1	110962		NZ_CP039519.1	0.00316966	879	127784	Acinetobacter baumannii strain TG22653 plasmid pTG22653, complete sequence
+d020	SAMN12286998	NZ_CP043470.1	110962		NZ_CP104298.1	0.0180709	520	106589	Acinetobacter baumannii strain ZHOU plasmid pZHOU-1, complete sequence
+none	SAMN12286998	NZ_CP043471.1	32363						
+nearest	SAMN12286998	NZ_CP043472.1	10879	blaOXA-72	NZ_CP043464.1	0.0	1000	10879	Acinetobacter baumannii strain 18WIARLN0023 plasmid unnamed2, complete sequence
+d002	SAMN12286998	NZ_CP043472.1	10879	blaOXA-72	NZ_CP087324.1	0.00271444	895	14741	Acinetobacter baumannii strain OC043 plasmid p3OC043
+d010	SAMN12286998	NZ_CP043472.1	10879	blaOXA-72	NZ_CP102816.1	0.0105688	668	9830	Acinetobacter baumannii strain AB20-VUB plasmid unnamed1, complete sequence
+d020	SAMN12286998	NZ_CP043472.1	10879	blaOXA-72	NZ_CP046548.1	0.0209501	475	10864	Acinetobacter baumannii strain 19WIARLN023_full plasmid unnamed2, complete sequence
+nearest	SAMN13951917	NZ_CP048372.1	90244		LC744472.1	0.00229842	910	102062	Escherichia coli MyNCGM433_1 plasmid pMyNCGM433_1 DNA, complete sequence
+d002	SAMN13951917	NZ_CP048372.1	90244		LC744472.1	0.00229842	910	102062	Escherichia coli MyNCGM433_1 plasmid pMyNCGM433_1 DNA, complete sequence
+d005	SAMN13951917	NZ_CP048372.1	90244		NZ_KY463220.1	0.00384578	856	104353	Escherichia coli plasmid pNDM5-IBAC, complete sequence
+d020	SAMN13951917	NZ_CP048372.1	90244		LC744485.1	0.0214999	467	82937	Escherichia coli MyNCGM494_1 plasmid pMyNCGM494_1 DNA, complete sequence
+nearest	SAMN13951917	NZ_CP048373.1	71270		NC_022885.1	0.0211548	472	145401	Escherichia coli plasmid pKPC-LKEc, complete sequence
+d020	SAMN13951917	NZ_CP048373.1	71270		NZ_MZ836801.1	0.023602	438	92260	Escherichia coli strain EC-16-10 plasmid pEC-16-10-NDM-5, complete sequence
+nearest	SAMN13951917	NZ_CP048374.1	10494	blaNDM-5	LC807778.1	4.76906e-05	998	10494	Escherichia coli EC12 plasmid pEC12-NDM-5 DNA, complete sequence
+d002	SAMN13951917	NZ_CP048374.1	10494	blaNDM-5	LC744474.1	0.00296902	886	10687	Escherichia coli MyNCGM448 plasmid pMyNCGM448 DNA, complete sequence
+d005	SAMN13951917	NZ_CP048374.1	10494	blaNDM-5	LC744490.1	0.00502299	818	13652	Escherichia coli MyNCGM520 plasmid pMyNCGM520 DNA, complete sequence
+d020	SAMN13951917	NZ_CP048374.1	10494	blaNDM-5	NZ_MH917716.1	0.0190552	504	8171	Escherichia coli strain 1225 plasmid unnamed, complete sequence
+none	SAMN13951917	NZ_CP048375.1	3684						
+nearest	SAMN14227939	NZ_MK124610.1	171645	blaNDM-1	NZ_CP109678.1	0.00944662	695	133661	Enterobacter cloacae strain 2312040 plasmid punidentified, complete sequence
+d010	SAMN14227939	NZ_MK124610.1	171645	blaNDM-1	NZ_CP042553.1	0.0118927	638	173758	Enterobacter hormaechei strain C45 plasmid pC45_002, complete sequence
+d020	SAMN14227939	NZ_MK124610.1	171645	blaNDM-1	NZ_CP042483.1	0.0188053	508	208956	Klebsiella pneumoniae strain C51 plasmid pC51_002, complete sequence
+nearest	SAMN14640320	NZ_CP124805.1	174299		NZ_CP026179.1	0.0418553	262	237571	Klebsiella pneumoniae strain KPNIH49 plasmid pKPC-224e, complete sequence
+none	SAMN14640320	NZ_CP124806.1	97591						
+nearest	SAMN14640320	NZ_CP124807.1	63589	blaOXA-48	NZ_CP126760.1	0.0	1000	63589	Enterobacter hormaechei strain 21KM3135 plasmid pKM35_OXA48, complete sequence
+d002	SAMN14640320	NZ_CP124807.1	63589	blaOXA-48	CP114756.1	0.00173271	931	67278	Klebsiella pneumoniae strain ST39 plasmid pKp189_3, complete sequence
+d005	SAMN14640320	NZ_CP124807.1	63589	blaOXA-48	CM017776.1	0.00473708	827	59941	Klebsiella pneumoniae strain HEE2017 plasmid pOXA48, complete sequence, whole genome shotgun sequence
+d010	SAMN14640320	NZ_CP124807.1	63589	blaOXA-48	NZ_LC545850.1	0.0105688	668	57022	Klebsiella variicola strain Kv-MW05 isolate Kv-MW05 plasmid pKv-MW05_OXA, complete sequence
+d020	SAMN14640320	NZ_CP124807.1	63589	blaOXA-48	NZ_CP061958.1	0.0202137	486	109135	Klebsiella pneumoniae strain IR5726 plasmid unnamed1, complete sequence
+none	SAMN14640320	NZ_CP124808.1	3629						
+nearest	SAMN15868729	CP067958.1	205213	blaKPC-2	NZ_CP109734.1	0.0	1000	203863	Providencia stuartii strain 2017-45-35 plasmid p2017-45-35, complete sequence
+d002	SAMN15868729	CP067958.1	205213	blaKPC-2	NZ_CP018956.1	0.0011089	955	216226	Escherichia coli strain Ecol_316 plasmid pEC316_KPC, complete sequence
+d005	SAMN15868729	CP067958.1	205213	blaKPC-2	CP109689.1	0.00560872	800	178420	Klebsiella pneumoniae strain 2017-45-84 plasmid p2017-45-84_2, complete sequence
+d010	SAMN15868729	CP067958.1	205213	blaKPC-2	NZ_OQ821169.1	0.0107836	663	194442	Escherichia coli strain 24A20CPO005 plasmid p24A20005_A_KPC, complete sequence
+d020	SAMN15868729	CP067958.1	205213	blaKPC-2	NZ_MH475146.1	0.0211548	472	175712	Citrobacter freundii strain 164 plasmid pCf164_LMB-1, complete sequence
+nearest	SAMN15868729	CP067959.1	202943		CP067443.1	0.00337267	872	231471	Klebsiella pneumoniae strain ARLG-4624 plasmid pC962_1, complete sequence
+d005	SAMN15868729	CP067959.1	202943		OW848877.1	0.00448671	835	234882	Klebsiella pneumoniae isolate 11 genome assembly, plasmid: P1
+d010	SAMN15868729	CP067959.1	202943		NZ_CP142911.1	0.00989629	684	317768	Klebsiella pneumoniae strain KP1902196 plasmid pKP1902196_1, complete sequence
+d020	SAMN15868729	CP067959.1	202943		CP097400.1	0.0214305	468	208317	Klebsiella pneumoniae strain KPN107 plasmid pKPN107_1, complete sequence
+nearest	SAMN15868729	CP067960.1	15271		NZ_CP021860.1	0.0143027	588	24749	Klebsiella pneumoniae strain AR_0125 plasmid tig00000007_pilon, complete sequence
+d010	SAMN15868729	CP067960.1	15271		NZ_CP021860.1	0.0143027	588	24749	Klebsiella pneumoniae strain AR_0125 plasmid tig00000007_pilon, complete sequence
+d020	SAMN15868729	CP067960.1	15271		NZ_OQ821031.1	0.0228571	448	21579	Citrobacter portucalensis strain 07B17CRGN010A plasmid p07B17010A_B_KPC, complete sequence
+nearest	SAMN15869048	CP067569.1	163521	blaKPC-2	NZ_LT009688.1	0.000434439	982	166484	Klebsiella pneumoniae strain O6CO7 plasmid pIT-06C07, complete sequence
+d002	SAMN15869048	CP067569.1	163521	blaKPC-2	NZ_OQ821107.1	0.00224371	912	179374	Klebsiella pneumoniae strain 11ACRGNY3027 plasmid p11AY3027_A_KPC, complete sequence
+d005	SAMN15869048	CP067569.1	163521	blaKPC-2	NZ_OQ821040.1	0.00476862	826	148107	Klebsiella pneumoniae strain 09A16CRGN004 plasmid p09A16004_A_KPC, complete sequence
+d010	SAMN15869048	CP067569.1	163521	blaKPC-2	NZ_MW650891.1	0.0103986	672	204515	Klebsiella pneumoniae subsp. pneumoniae strain 13 plasmid pKPN_pKpQIL, complete sequence
+d020	SAMN15869048	CP067569.1	163521	blaKPC-2	NZ_MG252894.1	0.0212923	470	161324	Klebsiella pneumoniae strain Kpn-35963cz plasmid pKpn-35963cz, complete sequence
+nearest	SAMN15869048	CP067570.1	43380		CP052170.1	0.00263042	898	46836	Klebsiella pneumoniae strain F16KP0075 plasmid pF16KP0075-3, complete sequence
+d002	SAMN15869048	CP067570.1	43380		CP052170.1	0.00263042	898	46836	Klebsiella pneumoniae strain F16KP0075 plasmid pF16KP0075-3, complete sequence
+d005	SAMN15869048	CP067570.1	43380		NZ_MK262709.1	0.00464278	830	44148	Klebsiella pneumoniae strain KP18-29 plasmid p18-29-NDM, complete sequence
+d010	SAMN15869048	CP067570.1	43380		NZ_OK623716.1	0.0106974	665	46160	Klebsiella pneumoniae strain 37.AK plasmid pNDMKP37, complete sequence
+d020	SAMN15869048	CP067570.1	43380		NC_019161.1	0.0212234	471	42447	Klebsiella pneumoniae plasmid pKPC-NY79, complete sequence
+nearest	SAMN15869048	CP067571.1	13841		NZ_AP024759.1	0.0145592	583	23753	Klebsiella pneumoniae strain TUM12128 plasmid ColRNAI, complete sequence
+d010	SAMN15869048	CP067571.1	13841		NZ_AP024759.1	0.0145592	583	23753	Klebsiella pneumoniae strain TUM12128 plasmid ColRNAI, complete sequence
+d020	SAMN15869048	CP067571.1	13841		NZ_OQ821031.1	0.0204789	482	21579	Citrobacter portucalensis strain 07B17CRGN010A plasmid p07B17010A_B_KPC, complete sequence
+nearest	SAMN16982406	NZ_CP071948.1	159998	blaSIM-1	CP113227.1	0.0455159	238	194547	Pseudomonadaceae bacterium T75 plasmid pT75-VIM, complete sequence
+none	SAMN16982406	NZ_CP071949.1	153270	blaSIM-1					
+nearest	SAMN22837217	NZ_CP145155.1	16906	blaKPC-3	NZ_CP145159.1	9.55247e-05	996	16903	Raoultella ornithinolytica strain CAVp363 plasmid pKPC_CAVP363-17, complete sequence
+d005	SAMN22837217	NZ_CP145155.1	16906	blaKPC-3	NZ_OQ821199.1	0.00631659	779	13234	Citrobacter freundii strain 31C17CRGN001 plasmid p31C17001_B_KPC, complete sequence
+d010	SAMN22837217	NZ_CP145155.1	16906	blaKPC-3	NZ_OQ821036.1	0.0106974	665	17252	Klebsiella pneumoniae strain 08A1213CRGN011C plasmid p08A1213011C_A_KPC, complete sequence
+d020	SAMN22837217	NZ_CP145155.1	16906	blaKPC-3	CP067825.1	0.0203459	484	14098	Klebsiella pneumoniae strain ARLG-3288 plasmid pC282_3, complete sequence
+nearest	SAMN24108481	NZ_CP090138.1	300750		NZ_CP136026.1	0.00351914	867	273302	Escherichia coli strain GDSC2BY4G plasmid pHNBY4G-1, complete sequence
+d005	SAMN24108481	NZ_CP090138.1	300750		NZ_CP136026.1	0.00351914	867	273302	Escherichia coli strain GDSC2BY4G plasmid pHNBY4G-1, complete sequence
+d010	SAMN24108481	NZ_CP090138.1	300750		NZ_CP068019.1	0.0105261	669	208610	Salmonella enterica strain 1722 plasmid unnamed1, complete sequence
+d020	SAMN24108481	NZ_CP090138.1	300750		CP090298.1	0.0205456	481	187710	Escherichia coli strain E-T791 plasmid pE-T791-NDM-5, complete sequence
+nearest	SAMN24108481	NZ_CP090139.1	53329	blaOXA-48	NZ_CP090135.1	0.0	1000	53329	Salmonella enterica subsp. enterica serovar Goldcoast strain 5ASAL07 plasmid p5ASAL07_53k, complete sequence
+d002	SAMN24108481	NZ_CP090139.1	53329	blaOXA-48	NZ_OW970482.1	0.00175922	930	49695	Klebsiella pneumoniae isolate 147 plasmid P4, complete sequence
+d005	SAMN24108481	NZ_CP090139.1	53329	blaOXA-48	NZ_MT989349.1	0.004991	819	53523	Klebsiella pneumoniae strain K273 plasmid pOXA48_K273, complete sequence
+d010	SAMN24108481	NZ_CP090139.1	53329	blaOXA-48	NZ_CP083515.1	0.0104835	670	77013	Escherichia coli strain elppa4 plasmid unnamed3, complete sequence
+d020	SAMN24108481	NZ_CP090139.1	53329	blaOXA-48	NZ_CP068897.1	0.0208822	476	65190	Klebsiella pneumoniae strain RIVM_C019575 plasmid pRIVM_C019575_3, complete sequence
+none	SAMN24108481	NZ_CP090140.1	6727						
+nearest	SAMN24145077	NZ_CP104372.1	112409	blaNDM-1	NZ_CP104680.1	0.0	1000	112409	Klebsiella pneumoniae strain 2021CK-00608 plasmid unnamed2, complete sequence
+d002	SAMN24145077	NZ_CP104372.1	112409	blaNDM-1	NZ_OP389273.1	0.00191916	924	117708	Klebsiella pneumoniae strain KP30E plasmid pKp30E-NDM-1, complete sequence
+d005	SAMN24145077	NZ_CP104372.1	112409	blaNDM-1	CP117214.1	0.00420918	844	95985	Klebsiella pneumoniae strain 2021QW-00056 plasmid p2021QW-00056_2, complete sequence
+d010	SAMN24145077	NZ_CP104372.1	112409	blaNDM-1	NZ_CP142966.1	0.0122141	631	134096	Klebsiella pneumoniae strain KP1906522 plasmid pKP1906522_1, complete sequence
+d020	SAMN24145077	NZ_CP104372.1	112409	blaNDM-1	NZ_MW363916.1	0.0224927	453	124439	Klebsiella pneumoniae strain NMI1298_15 plasmid p1298F, complete sequence
+nearest	SAMN27992998	CP132328.1	23582	blaVIM-1	NZ_CP107724.1	0.0200822	488	17056	Escherichia coli strain 2021CK-01361 plasmid unnamed4, complete sequence
+d020	SAMN27992998	CP132328.1	23582	blaVIM-1	NZ_CP107724.1	0.0200822	488	17056	Escherichia coli strain 2021CK-01361 plasmid unnamed4, complete sequence
+none	SAMN37485474	NZ_CP135152.1	76777						
+nearest	SAMN37485474	NZ_CP135153.1	67453		NZ_CP066122.1	0.0326168	337	122921	Acinetobacter bereziniae strain GD0320 plasmid unnamed map unlocalized
+nearest	SAMN37485474	NZ_CP135154.1	62958		NZ_CP027121.1	0.0113974	649	72105	Acinetobacter baumannii strain AR_0056 plasmid unnamed2, complete sequence
+d010	SAMN37485474	NZ_CP135154.1	62958		NZ_CP027121.1	0.0113974	649	72105	Acinetobacter baumannii strain AR_0056 plasmid unnamed2, complete sequence
+d020	SAMN37485474	NZ_CP135154.1	62958		NZ_CP131895.1	0.020747	478	90163	Acinetobacter baumannii strain 2008C02-166 plasmid p2008C02-166-2, complete sequence
+nearest	SAMN37485474	NZ_CP135155.1	19700	blaOXA-58	NZ_CP139832.1	0.0480354	223	48590	Acinetobacter baumannii strain Nord12-3 plasmid pNord12_2, complete sequence
+none	SAMN37485474	NZ_CP135156.1	11264						
+none	SAMN37485474	NZ_CP135157.1	10555						
+none	SAMN37485474	NZ_CP135158.1	9108						
+none	SAMN38182635	NZ_CP143342.1	76286						
+nearest	SAMN38182635	NZ_CP143343.1	46161	blaNDM-5	NZ_CP137438.1	4.76906e-05	998	46161	Klebsiella quasipneumoniae strain 2023CB-00436 plasmid unnamed2, complete sequence
+d002	SAMN38182635	NZ_CP143343.1	46161	blaNDM-5	NZ_MK450349.1	0.00173271	931	43252	Klebsiella aerogenes strain CR33 plasmid pNDM-CR33, complete sequence
+d005	SAMN38182635	NZ_CP143343.1	46161	blaNDM-5	NZ_CP102887.1	0.00467416	829	52085	Klebsiella pneumoniae strain KH2 plasmid pKH2-4-NDM5, complete sequence
+d010	SAMN38182635	NZ_CP143343.1	46161	blaNDM-5	NZ_OX211908.1	0.010314	674	57650	Escherichia coli isolate 21054791 plasmid pMOL6975, complete sequence
+d020	SAMN38182635	NZ_CP143343.1	46161	blaNDM-5	NC_019161.1	0.0227107	450	42447	Klebsiella pneumoniae plasmid pKPC-NY79, complete sequence
+none	SAMN40632425	NZ_CP155459.1	108159						
+nearest	SAMN40632425	NZ_CP155460.1	78115	blaOXA	NZ_MT813426.1	0.00191916	924	78023	Acinetobacter baumannii strain 2018HBAB1 plasmid p2, complete sequence
+d002	SAMN40632425	NZ_CP155460.1	78115	blaOXA	NZ_MT813426.1	0.00191916	924	78023	Acinetobacter baumannii strain 2018HBAB1 plasmid p2, complete sequence
+d005	SAMN40632425	NZ_CP155460.1	78115	blaOXA	NZ_CP061643.1	0.00483188	824	74127	Acinetobacter seifertii strain AS40 plasmid pAS40-3, complete sequence
+d010	SAMN40632425	NZ_CP155460.1	78115	blaOXA	NZ_CP012008.1	0.0106545	666	87569	Acinetobacter baumannii strain Ab04-mff plasmid pAB04-2, complete sequence
+d020	SAMN40632425	NZ_CP155460.1	78115	blaOXA	NZ_CP050404.1	0.0212234	471	99090	Acinetobacter baumannii strain VB2486 plasmid pVB2486_1, complete sequence
+nearest	SAMN40632425	NZ_CP155461.1	14639		NZ_MK431775.1	0.0137488	599	15199	Acinetobacter baumannii strain 11A14CRGN003 plasmid pO237-4, complete sequence
+d010	SAMN40632425	NZ_CP155461.1	14639		NZ_MK431775.1	0.0137488	599	15199	Acinetobacter baumannii strain 11A14CRGN003 plasmid pO237-4, complete sequence
+none	SAMN40632425	NZ_CP155462.1	2025						

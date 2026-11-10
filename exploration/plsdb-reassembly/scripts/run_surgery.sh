@@ -12,11 +12,12 @@ cd "$(dirname "$0")/.."
 JOBS=${1:-8}
 PLSDB=${PLSDB:-../data/plsdb}
 ENV_PS=${ENV_PS:-plasmid-surgery}
-REFSET=${REFSET:-truth}  # truth, or a set in refsets/
+REFSET=${REFSET:-truth}  # truth, or a set in $REFSETS/
+REFSETS=${REFSETS:-refsets}   # e.g. near-neighbor-with-carbapenemase/refsets (then set OUT too)
 if [ "$REFSET" = truth ]; then
   REFDIR=truth; FEATDIR=surgery/features; OUT=${OUT:-surgery}   # features stay in surgery/features
 else
-  REFDIR=refsets/$REFSET; FEATDIR=$REFDIR; OUT=${OUT:-surgery_near/$REFSET}
+  REFDIR=$REFSETS/$REFSET; FEATDIR=$REFDIR; OUT=${OUT:-surgery_near/$REFSET}
   [ -d "$REFDIR" ] || { echo "no reference set $REFDIR (scripts/select_near_refs.py)" >&2; exit 1; }
 fi
 THREADS=${THREADS:-1}   # plasmid-surgery -t
