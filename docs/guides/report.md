@@ -30,6 +30,10 @@ results. It's drawn entirely from the files the run wrote.
    joining two plasmids). To find what the unexplained parts are, search a plasmid database with a
    reference's `unaligned.fa` (`plasmid-surgery-refs --plasmid-reconstruction <ref>/unaligned.fa ...`).
    With `--features`, the sample's genes are shown too, in red if mostly in an unexplained part.
+   Joins between parts explained by different references (and circular contigs' own junctions) are
+   marked, coloured by their long-read evidence (green supported, red contradicted, yellow weak, grey
+   without long reads), with read-depth tracks along the contigs and the composition and joins tables
+   below. See [Composition and joins](../concepts/joins.md).
 5. **Maps**: one linear map per reference, in rank order.
 
 ### Reading the maps

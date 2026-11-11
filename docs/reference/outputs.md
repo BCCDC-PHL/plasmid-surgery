@@ -10,6 +10,9 @@ Outputs are written to `--outdir` (default: the current directory), named `<pref
 ├── assessment.tsv     one row per reference, ranked (rank, score)
 ├── candidates.tsv     with --db-sketch: every candidate reference considered (as from plasmid-surgery-refs)
 ├── contig_depth.tsv   with reads: mean read depth of each contig (see below)
+├── composition.tsv    references picked by how much of the reconstruction each newly explains (see below)
+├── joins.tsv          where the reconstruction switches between references, with long-read evidence (see below)
+├── reconstruction_{short,long}_reads_depth.bedgraph.gz   with reads: depth along each reconstruction contig
 ├── report.html        with --report: see The HTML report
 └── <ref_id>/          one per reference, even if there's only one
     ├── reference.fa
@@ -229,3 +232,31 @@ the reconstruction's contigs.
 | `in_reconstruction` | Whether it's one of the reconstruction's contigs (matched by sequence) |
 | `bin`               | With `--bins`: its bin(s), or `unbinned`; `NA` without `--bins` |
 | `reads_depth`       | Mean read depth: aligned read bases (primary and supplementary alignments at least `--min-read-identity` identical) / contig length, summed over short and long reads |
+
+## `composition.tsv`
+
+At the top level. References in the order picked, each by how much of the reconstruction it newly
+explains (see [Composition and joins](../concepts/joins.md)); the last row (`ref_id` `none`) is what
+none of them explain.
+
+| field                 | description |
+|-----------------------|-------------|
+| `order`               | 1 for the first reference picked (`NA` for the last row) |
+| `ref_id`              | The reference, or `none` |
+| `new_bases`, `new_fraction` | Reconstruction bases it explains that earlier ones didn't, and as a fraction of the reconstruction |
+| `cumulative_fraction` | Fraction explained by it and the ones before it |
+
+## `joins.tsv`
+
+At the top level. One row per join (see [Composition and joins](../concepts/joins.md)).
+
+| field                    | description |
+|--------------------------|-------------|
+| `contig_id`, `join`      | The contig, and `join_<n>` on it |
+| `type`                   | `reference_switch`, `unexplained_boundary` or `circular_junction` |
+| `left`, `right`          | The reference (or `none`) on each side |
+| `region_start`, `region_end`, `region_length` | The join's region on the contig (0-based, end exclusive; for a circular junction `region_end` < `region_start` when it wraps) |
+| `long_reads_spanning`    | Long reads aligned across the region plus `--join-anchor` bp each side (`NA` without long reads) |
+| `long_reads_clipped`     | Long reads whose alignment ends or starts at the join with ≥ 200 bp of the read unaligned beyond it |
+| `short_depth_left`, `short_depth_right`, `long_depth_left`, `long_depth_right` | Median depth in the 5 kb either side |
+| `call`                   | `supported`, `contradicted`, `weak` or `no_long_reads` |
