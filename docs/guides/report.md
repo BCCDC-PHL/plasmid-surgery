@@ -153,6 +153,39 @@ with a deletion and an insertion, and with an extra gene.
    identical (gap-compressed); indels of 50 bp or more within an alignment don't count as contained.
    `--no-compare` skips it; `-t` sets minimap2's threads.
 
+   Below it, **SNP distances** between every pair, from the same alignments:
+
+    - **Close alignments only**: alignments less than 99% identical aren't compared for SNPs. Between
+      close relatives they're a homolog from elsewhere (e.g. a chromosomal contig binned with the
+      plasmid, or a diverged IS copy), not the same locus; their sequence is counted as
+      `divergent_bases`. A SNP distance is for close relatives: between distant ones, little is
+      compared and none is reported (containment and identity, above, still describe them).
+    - **One-to-one**: each stretch of either reconstruction is compared once (longest alignments first),
+      and stretches that align more than once between the two (repeats, e.g. an IS that one assembly
+      put in a contig of its own) are left out, so repeat copies aren't compared with each other.
+    - **Trimmed**: differences within 100 bp of an alignment's or a contig's end are ignored; assembly
+      errors concentrate at contig ends.
+    - **SNPs and indels separately**: long-read assembly errors are mostly indels (homopolymers), so
+      the distance counts substitutions only; indels are in the tooltip and the table.
+    - **Clusters**: SNPs with at least 2 others within 1 kb are counted apart, as a block from another
+      lineage brings many at once. Cells show the SNPs outside clusters.
+    - **How much was compared**: every count comes with the bases compared. A pair is grey, with no
+      distance, when less than half of the shorter of the two was compared (e.g. a small fragment
+      that shares only part of its sequence).
+
+   In `<report name>_pairs.tsv`: `compared_bases`, `compared_fraction_a`/`_b`, `snps`,
+   `snps_in_clusters`, `snps_outside_clusters`, `snps_per_100kb` (outside clusters), `indels`, `divergent_bases`, and
+   `snp_distance_reported`. Distances are pairwise: each pair is compared over the sequence the two
+   share, so pairs aren't all compared over the same stretch.
+
+   How much is noise: on public isolates reassembled with shovill, Unicycler and dragonflye
+   (hybrid), reconstructions of the same plasmid differed by 0 SNPs (outside clusters) in most pairs,
+   at most 2 between short-read reconstructions and the published plasmid, and at most 5 for hybrid
+   ones (about 0.15 and 0.4 per 100 kb overall). Read distances of that size as possibly identical.
+   Indels were more frequent with hybrid assemblies (about 3.5 per 100 kb against the published plasmid,
+   vs. 1.4 for short-read ones, and about 3 per 100 kb between hybrid and short-read reconstructions
+   of the same plasmid), which is why they're kept out of the distance.
+
 The first four sections can be ordered together, by coverage (the default), score, sample or input
 order. To compare samples, use coverage: the score ranks references within one sample's run, and with
 `--assembly` it uses the assembly's coverage, so it doesn't reflect sequence lost by binning.

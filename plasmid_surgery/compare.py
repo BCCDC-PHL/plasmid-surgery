@@ -14,9 +14,29 @@ For each pair (A, B):
 
 Alignments shorter than MIN_ALIGNMENT bp or below MIN_IDENTITY gap-compressed identity don't count. Members are ordered
 by average-linkage clustering on 1 - mean containment, so similar plasmids sit together.
+
+**SNP distances** (pair_snps), from the same alignments:
+
+- **close alignments only**: alignments under SNP_MIN_IDENTITY (gap-compressed) aren't compared for SNPs:
+  between close relatives, they're a homolog from elsewhere (e.g. a chromosomal contig binned with the
+  plasmid, or a diverged IS copy) rather than the same locus, and would add many false SNPs. Their
+  sequence is reported as ``divergent_bases``; between distant relatives, little is compared and no
+  distance is reported;
+- **one-to-one**: each stretch of either member is compared once (alignments kept best first, skipping any
+  overlapping a kept one by more than OVERLAP_TOLERANCE bp on either side), and stretches aligning more
+  than once between the pair (repeats, e.g. IS copies) are masked, so paralogous copies aren't compared;
+- **trimmed**: differences within END_TRIM bp of an alignment's or a contig's end don't count (assembly
+  errors concentrate at contig ends);
+- substitutions (**SNPs**) and **indel** events are counted separately (long-read assembly errors are
+  mostly homopolymer indels);
+- SNPs in **clusters** (at least CLUSTER_MIN within CLUSTER_WINDOW bp) are counted apart: a block from a
+  different lineage brings many SNPs at once;
+- **compared bases** are the aligned positions that count, so a SNP count is always read with how much
+  was compared.
 """
 from __future__ import annotations
 
+import bisect
 import csv
 import logging
 import re
@@ -31,10 +51,20 @@ logger = logging.getLogger(__name__)
 MIN_ALIGNMENT = 500
 MIN_IDENTITY = 0.9
 MAX_INDEL = 50          # indels at least this long within an alignment aren't covered (e.g. a novel gene)
+OVERLAP_TOLERANCE = 50  # one-to-one: alignments may overlap kept ones by this much
+END_TRIM = 100          # differences this close to an alignment's or contig's end don't count
+CLUSTER_WINDOW = 1000
+CLUSTER_MIN = 3
+MIN_COMPARED_FRACTION = 0.5   # a SNP distance is shown if at least this fraction of the shorter member was compared
+SNP_MIN_IDENTITY = 0.99       # alignments less identical than this aren't compared for SNPs (divergent homologs)
+
+CS_RE = re.compile(r'(:\d+|\*[a-z][a-z]|[+-][a-z]+)')
 
 CIGAR_RE = re.compile(r'(\d+)([MIDNSHP=X])')
 
-PAIR_FIELDNAMES = ['a', 'b', 'a_length', 'b_length', 'a_in_b', 'b_in_a', 'identity', 'aligned_bases_a', 'aligned_bases_b']
+PAIR_FIELDNAMES = ['a', 'b', 'a_length', 'b_length', 'a_in_b', 'b_in_a', 'identity', 'aligned_bases_a', 'aligned_bases_b',
+                   'compared_bases', 'compared_fraction_a', 'compared_fraction_b', 'snps', 'snps_in_clusters',
+                   'snps_outside_clusters', 'snps_per_100kb', 'indels', 'divergent_bases', 'snp_distance_reported']
 
 
 def _merged_length(intervals) -> int:
@@ -108,9 +138,10 @@ def all_vs_all(members: list[dict], tmpdir, threads: int = 1) -> dict:
     n = len(members)
     lengths = [sum(len(c['seq']) for c in m['contigs']) for m in members]
     covered = {}                       # (i, j) -> {contig k: [(start, end)]}: parts of i aligning to j
+    pair_alignments = {}               # (i, j), i < j -> alignments of i (query) to j (target), for SNPs
     matches = [[0] * n for _ in range(n)]
     blocks = [[0] * n for _ in range(n)]
-    cmd = ['minimap2', '-c', '-x', 'asm20', '-P', '-t', str(threads), str(fasta), str(fasta)]
+    cmd = ['minimap2', '-c', '--cs', '-x', 'asm20', '-P', '-t', str(threads), str(fasta), str(fasta)]
     logger.info(f"Comparing {n} sequences all-vs-all")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -135,6 +166,13 @@ def all_vs_all(members: list[dict], tmpdir, threads: int = 1) -> dict:
         a, b = min(qi, ti), max(qi, ti)
         matches[a][b] += ident * block
         blocks[a][b] += block
+        if qi < ti:
+            cs = next((t[5:] for t in f[12:] if t.startswith('cs:Z:')), None)
+            if cs is not None:
+                pair_alignments.setdefault((qi, ti), []).append({
+                    'qk': qk, 'qlen': int(f[1]), 'qs': int(f[2]), 'qe': int(f[3]), 'strand': f[4],
+                    'tk': tk, 'tlen': int(f[6]), 'ts': int(f[7]), 'te': int(f[8]), 'block': block, 'cs': cs,
+                    'identity': ident})
     aligned = [[0] * n for _ in range(n)]
     containment = [[0.0] * n for _ in range(n)]
     identity = [[None] * n for _ in range(n)]
@@ -149,8 +187,174 @@ def all_vs_all(members: list[dict], tmpdir, threads: int = 1) -> dict:
             if blocks[a][b]:
                 identity[i][j] = round(matches[a][b] / blocks[a][b], 5)
     distance = [[1 - (containment[i][j] + containment[j][i]) / 2 for j in range(n)] for i in range(n)]
+    snps = {}
+    for i in range(n):
+        for j in range(i + 1, n):
+            snps[(i, j)] = pair_snps(pair_alignments.get((i, j), []), lengths[i], lengths[j])
     return {'names': [m['name'] for m in members], 'lengths': lengths, 'containment': containment,
-            'aligned': aligned, 'identity': identity, 'order': average_linkage_order(distance)}
+            'aligned': aligned, 'identity': identity, 'snps': snps, 'order': average_linkage_order(distance)}
+
+
+# --- SNP distances ---
+
+def _merge(intervals):
+    out = []
+    for s, e in sorted(intervals):
+        if e <= s:
+            continue
+        if out and s <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
+    return out
+
+
+def _multiply_covered(intervals) -> list:
+    """Where at least two of the intervals overlap."""
+    events = sorted([(s, 1) for s, e in intervals] + [(e, -1) for s, e in intervals])
+    out, depth, start = [], 0, None
+    for pos, d in events:
+        depth += d
+        if depth >= 2 and start is None:
+            start = pos
+        elif depth < 2 and start is not None:
+            if pos > start:
+                out.append((start, pos))
+            start = None
+    return _merge(out)
+
+
+def _overlap(a, b) -> int:
+    return max(0, min(a[1], b[1]) - max(a[0], b[0]))
+
+
+def one_to_one(alignments: list[dict]) -> list[dict]:
+    """Alignments kept best (longest) first, skipping any overlapping a kept one by more than OVERLAP_TOLERANCE
+    bp on the query or the target."""
+    kept = []
+    for a in sorted(alignments, key=lambda x: -x['block']):
+        if all(not (a['qk'] == k['qk'] and _overlap((a['qs'], a['qe']), (k['qs'], k['qe'])) > OVERLAP_TOLERANCE)
+               and not (a['tk'] == k['tk'] and _overlap((a['ts'], a['te']), (k['ts'], k['te'])) > OVERLAP_TOLERANCE)
+               for k in kept):
+            kept.append(a)
+    return kept
+
+
+class _Excluded:
+    """Merged excluded intervals on one contig, with a fast membership test."""
+    def __init__(self, intervals):
+        self.ivs = _merge(intervals)
+        self.starts = [s for s, _ in self.ivs]
+
+    def __contains__(self, p):
+        i = bisect.bisect_right(self.starts, p) - 1
+        return i >= 0 and p < self.ivs[i][1]
+
+    def within(self, start, end):
+        """The excluded intervals clipped to [start, end)."""
+        i = max(bisect.bisect_right(self.starts, start) - 1, 0)
+        out = []
+        while i < len(self.ivs) and self.ivs[i][0] < end:
+            s, e = max(self.ivs[i][0], start), min(self.ivs[i][1], end)
+            if e > s:
+                out.append((s, e))
+            i += 1
+        return out
+
+
+def clustered(positions: list[int]) -> set:
+    """Indices of the SNP positions (sorted) lying in a window of CLUSTER_WINDOW bp holding at least CLUSTER_MIN."""
+    out, j = set(), 0
+    for i in range(len(positions)):
+        while positions[i] - positions[j] >= CLUSTER_WINDOW:
+            j += 1
+        if i - j + 1 >= CLUSTER_MIN:
+            out.update(range(j, i + 1))
+    return out
+
+
+def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
+    """
+    SNPs and indels between members A (query) and B (target) from their alignments (with cs tags): one-to-one,
+    repeats masked, ends trimmed (see the module docstring).
+
+    :return: dict with 'compared_bases', 'snps', 'snps_in_clusters', 'indels', 'divergent_bases' (bases of A
+             in alignments under SNP_MIN_IDENTITY and in no compared one), and 'positions': each SNP as
+             (B's contig index, position on it, A's contig index, position on it)
+    """
+    # Repeats: stretches of either member aligned more than once between the pair
+    q_mask, t_mask = {}, {}
+    for a in alignments:
+        q_mask.setdefault(a['qk'], []).append((a['qs'], a['qe']))
+        t_mask.setdefault(a['tk'], []).append((a['ts'], a['te']))
+    q_mask = {k: _multiply_covered(v) for k, v in q_mask.items()}
+    t_mask = {k: _multiply_covered(v) for k, v in t_mask.items()}
+    compared, indels = 0, 0
+    snp_positions = {}
+    positions = []
+    close = [a for a in alignments if a.get('identity', 1.0) >= SNP_MIN_IDENTITY]
+    kept = one_to_one(close)
+    divergent = {}
+    for a in alignments:
+        if a.get('identity', 1.0) < SNP_MIN_IDENTITY:
+            divergent.setdefault(a['qk'], []).append((a['qs'], a['qe']))
+    taken = {}
+    for a in kept:
+        taken.setdefault(a['qk'], []).append((a['qs'], a['qe']))
+    divergent_bases = 0
+    for k, ivs in divergent.items():
+        excl = _Excluded(taken.get(k, []))
+        for s_, e_ in _merge(ivs):
+            divergent_bases += (e_ - s_) - sum(e2 - s2 for s2, e2 in excl.within(s_, e_))
+    for a in kept:
+        ts, te, qs, qe = a['ts'], a['te'], a['qs'], a['qe']
+        t_excl = _Excluded(t_mask.get(a['tk'], []) + [(ts, ts + END_TRIM), (te - END_TRIM, te),
+                                                      (0, END_TRIM), (a['tlen'] - END_TRIM, a['tlen'])])
+        q_excl = _Excluded(q_mask.get(a['qk'], []) + [(0, END_TRIM), (a['qlen'] - END_TRIM, a['qlen'])])
+        forward = a['strand'] == '+'
+        t, qoff = ts, 0
+
+        def qpos(off):
+            return qs + off if forward else qe - 1 - off
+        for op in CS_RE.findall(a['cs']):
+            kind = op[0]
+            if kind == ':':
+                n = int(op[1:])
+                # Excluded positions of this run, as offsets 0..n: the target's, and the query's mapped onto it
+                parts = [(s - t, e - t) for s, e in t_excl.within(t, t + n)]
+                if forward:
+                    parts += [(s - qpos(qoff), e - qpos(qoff)) for s, e in q_excl.within(qpos(qoff), qpos(qoff) + n)]
+                else:
+                    lo, hi = qpos(qoff + n - 1), qpos(qoff) + 1
+                    parts += [(qpos(qoff) - (e - 1), qpos(qoff) - s + 1) for s, e in q_excl.within(lo, hi)]
+                compared += n - sum(e - s for s, e in _merge(parts))
+                t += n
+                qoff += n
+            elif kind == '*':
+                if t not in t_excl and qpos(qoff) not in q_excl:
+                    compared += 1
+                    snp_positions.setdefault(a['tk'], []).append(t)
+                    positions.append((a['tk'], t, a['qk'], qpos(qoff)))
+                t += 1
+                qoff += 1
+            elif kind == '+':
+                if t not in t_excl and qpos(qoff) not in q_excl:
+                    indels += 1
+                qoff += len(op) - 1
+            else:   # '-'
+                if t not in t_excl and qpos(qoff) not in q_excl:
+                    indels += 1
+                t += len(op) - 1
+    snps = sum(len(v) for v in snp_positions.values())
+    in_clusters = sum(len(clustered(sorted(v))) for v in snp_positions.values())
+    return {'compared_bases': compared, 'snps': snps, 'snps_in_clusters': in_clusters, 'indels': indels,
+            'divergent_bases': divergent_bases, 'positions': sorted(positions)}
+
+
+def snp_distance_reported(compared: int, length_a: int, length_b: int) -> bool:
+    """Whether enough was compared for the SNP count to stand as a distance."""
+    shorter = min(length_a, length_b)
+    return shorter > 0 and compared >= MIN_COMPARED_FRACTION * shorter
 
 
 def average_linkage_order(distance: list[list[float]]) -> list[int]:
@@ -178,8 +382,24 @@ def pair_rows(result: dict) -> list[dict]:
             rows.append({'a': names[i], 'b': names[j], 'a_length': result['lengths'][i], 'b_length': result['lengths'][j],
                          'a_in_b': result['containment'][i][j], 'b_in_a': result['containment'][j][i],
                          'identity': result['identity'][i][j] if result['identity'][i][j] is not None else 'NA',
-                         'aligned_bases_a': result['aligned'][i][j], 'aligned_bases_b': result['aligned'][j][i]})
+                         'aligned_bases_a': result['aligned'][i][j], 'aligned_bases_b': result['aligned'][j][i],
+                         **snp_fields(result, i, j)})
     return rows
+
+
+def snp_fields(result: dict, i: int, j: int) -> dict:
+    """The SNP columns of pair (i, j), i < j."""
+    snp = result['snps'][(min(i, j), max(i, j))]
+    la, lb = result['lengths'][i], result['lengths'][j]
+    compared = snp['compared_bases']
+    outside = snp['snps'] - snp['snps_in_clusters']
+    return {'compared_bases': compared,
+            'compared_fraction_a': round(compared / la, 4) if la else 0.0,
+            'compared_fraction_b': round(compared / lb, 4) if lb else 0.0,
+            'snps': snp['snps'], 'snps_in_clusters': snp['snps_in_clusters'], 'snps_outside_clusters': outside,
+            'snps_per_100kb': round(outside / compared * 1e5, 2) if compared else 'NA',
+            'indels': snp['indels'], 'divergent_bases': snp.get('divergent_bases', 0),
+            'snp_distance_reported': snp_distance_reported(compared, la, lb)}
 
 
 def write_pairs(path, result: dict) -> None:
