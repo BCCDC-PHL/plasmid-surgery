@@ -122,8 +122,8 @@ def covered_blocks(f: list[str]) -> tuple[list, list]:
 def all_vs_all(members: list[dict], tmpdir, threads: int = 1, min_identity: float = None) -> dict:
     """
     :param members: [{'name': str, 'contigs': [{'seq_id', 'seq'}, ...]}]
-    :return: dict with 'names', 'lengths', 'containment' (containment[i][j]: fraction of member i in member j),
-             'aligned' (aligned[i][j]: bases of i covered by j), 'identity' (identity[i][j], symmetric; None if
+    :return: dict with 'names', 'lengths', 'containment' (``containment[i][j]``: fraction of member i in member j),
+             'aligned' (``aligned[i][j]``: bases of i covered by j), 'identity' (``identity[i][j]``, symmetric; None if
              no alignment) and 'order' (member indices, clustered)
     :raises alignment.AlignmentError: if minimap2 is missing or fails
     """
