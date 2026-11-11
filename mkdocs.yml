@@ -102,3 +102,5 @@ nav:
           - plasmid_surgery.refs: reference/api/refs.md
           - plasmid_surgery.report: reference/api/report.md
           - plasmid_surgery.cohort: reference/api/cohort.md
+          - plasmid_surgery.compare: reference/api/compare.md
+          - plasmid_surgery.core: reference/api/core.md

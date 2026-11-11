@@ -28,10 +28,10 @@ jobs:
       DISABLE_MKDOCS_2_WARNING: "true"
       NO_MKDOCS_2_WARNING: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The behaviour report runs plasmid-surgery, so the build needs minimap2
-      - uses: conda-incubator/setup-miniconda@v3
+      - uses: conda-incubator/setup-miniconda@v4
         with:
           miniforge-version: latest
           environment-file: environment.yml
@@ -44,7 +44,7 @@ jobs:
       - name: Build
         run: mkdocs build --strict
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
         with:
           path: site
@@ -64,4 +64,4 @@ jobs:
       cancel-in-progress: false
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

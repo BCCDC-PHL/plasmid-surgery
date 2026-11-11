@@ -178,10 +178,27 @@ with a deletion and an insertion, and with an extra gene.
    `snp_distance_reported`. Distances are pairwise: each pair is compared over the sequence the two
    share, so pairs aren't all compared over the same stretch.
 
+   Last, **core SNPs on the reference**: every reconstruction placed on the shared reference and
+   called at each of its positions (with the same filters; also leaving out the reference's own
+   repeats, and deletions), so every pair is compared over the *same* positions. The core is the
+   positions called in every sample (`--core-min-fraction 1.0`, the default); with a lower fraction
+   (e.g. 0.95), positions called in that share of samples, each pair compared at those both called.
+   A fragmentary reconstruction shrinks a strict core for everyone, so a table lists each sample's
+   calls, fewest first, and the core's size without it. Outputs beside the report:
+   `<report name>_core.fasta` (the core alignment, reference first; `-` where a sample isn't called,
+   for a tree), `_core_pairs.tsv` (`compared_positions`, `snps`, `snps_in_clusters`,
+   `snps_outside_clusters`) and `_core_samples.tsv`. The reference is aligned as linear, so the
+   100 bp either side of its origin aren't in the core. `--snp-min-identity` (default 0.99) sets the
+   identity floor for both pairwise and core SNPs; a reference much more distant than that from the
+   samples leaves little to call.
+
    How much is noise: on public isolates reassembled with shovill, Unicycler and dragonflye
    (hybrid), reconstructions of the same plasmid differed by 0 SNPs (outside clusters) in most pairs,
    at most 2 between short-read reconstructions and the published plasmid, and at most 5 for hybrid
    ones (about 0.15 and 0.4 per 100 kb overall). Read distances of that size as possibly identical.
+   Core SNPs (each published plasmid as the reference, its matching reconstructions as samples) were
+   lower still: at most 1 per pair (about 0.03 per 100 kb), over a strict core of a median 71% of
+   the plasmid.
    Indels were more frequent with hybrid assemblies (about 3.5 per 100 kb against the published plasmid,
    vs. 1.4 for short-read ones, and about 3 per 100 kb between hybrid and short-read reconstructions
    of the same plasmid), which is why they're kept out of the distance.

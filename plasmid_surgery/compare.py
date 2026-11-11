@@ -119,11 +119,11 @@ def covered_blocks(f: list[str]) -> tuple[list, list]:
     return q_blocks, t_blocks
 
 
-def all_vs_all(members: list[dict], tmpdir, threads: int = 1) -> dict:
+def all_vs_all(members: list[dict], tmpdir, threads: int = 1, min_identity: float = None) -> dict:
     """
     :param members: [{'name': str, 'contigs': [{'seq_id', 'seq'}, ...]}]
-    :return: dict with 'names', 'lengths', 'containment' (containment[i][j]: fraction of member i in member j),
-             'aligned' (aligned[i][j]: bases of i covered by j), 'identity' (identity[i][j], symmetric; None if
+    :return: dict with 'names', 'lengths', 'containment' (``containment[i][j]``: fraction of member i in member j),
+             'aligned' (``aligned[i][j]``: bases of i covered by j), 'identity' (``identity[i][j]``, symmetric; None if
              no alignment) and 'order' (member indices, clustered)
     :raises alignment.AlignmentError: if minimap2 is missing or fails
     """
@@ -190,7 +190,7 @@ def all_vs_all(members: list[dict], tmpdir, threads: int = 1) -> dict:
     snps = {}
     for i in range(n):
         for j in range(i + 1, n):
-            snps[(i, j)] = pair_snps(pair_alignments.get((i, j), []), lengths[i], lengths[j])
+            snps[(i, j)] = pair_snps(pair_alignments.get((i, j), []), lengths[i], lengths[j], min_identity)
     return {'names': [m['name'] for m in members], 'lengths': lengths, 'containment': containment,
             'aligned': aligned, 'identity': identity, 'snps': snps, 'order': average_linkage_order(distance)}
 
@@ -273,7 +273,7 @@ def clustered(positions: list[int]) -> set:
     return out
 
 
-def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
+def pair_snps(alignments: list[dict], length_a: int, length_b: int, min_identity: float = None) -> dict:
     """
     SNPs and indels between members A (query) and B (target) from their alignments (with cs tags): one-to-one,
     repeats masked, ends trimmed (see the module docstring).
@@ -292,11 +292,12 @@ def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
     compared, indels = 0, 0
     snp_positions = {}
     positions = []
-    close = [a for a in alignments if a.get('identity', 1.0) >= SNP_MIN_IDENTITY]
+    min_identity = SNP_MIN_IDENTITY if min_identity is None else min_identity
+    close = [a for a in alignments if a.get('identity', 1.0) >= min_identity]
     kept = one_to_one(close)
     divergent = {}
     for a in alignments:
-        if a.get('identity', 1.0) < SNP_MIN_IDENTITY:
+        if a.get('identity', 1.0) < min_identity:
             divergent.setdefault(a['qk'], []).append((a['qs'], a['qe']))
     taken = {}
     for a in kept:

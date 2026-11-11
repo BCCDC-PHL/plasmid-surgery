@@ -25,6 +25,7 @@ from pathlib import Path
 from plasmid_surgery import report
 import plasmid_surgery.alignment as alignment
 import plasmid_surgery.compare as compare
+import plasmid_surgery.core as core
 import plasmid_surgery.parsers as parsers
 
 logger = logging.getLogger(__name__)
@@ -446,19 +447,26 @@ def comparison_members(cohort: dict) -> tuple[list[dict], list[str]]:
     return members, missing
 
 
-def compare_reconstructions(cohort: dict, threads: int = 1) -> dict:
-    """All-vs-all comparison of the reconstructions and the reference (compare.all_vs_all), or why not."""
+def compare_reconstructions(cohort: dict, threads: int = 1, min_identity: float = compare.SNP_MIN_IDENTITY,
+                            core_min_fraction: float = 1.0) -> dict:
+    """All-vs-all comparison of the reconstructions and the reference (compare.all_vs_all), and core SNPs on the
+    reference (core.core_snps), or why not."""
     members, missing = comparison_members(cohort)
     if missing:
         logger.warning(f"{len(missing)} run(s) have no reconstruction.fa (made before plasmid-surgery kept it; rerun to "
                        f"include them): {', '.join(missing[:5])}{' ...' if len(missing) > 5 else ''}")
-    out = {'members': members, 'missing': missing, 'result': None, 'error': None}
+    out = {'members': members, 'missing': missing, 'result': None, 'error': None, 'core': None}
     if sum(not m['is_reference'] for m in members) < 2:
         out['error'] = 'fewer than two reconstructions to compare'
         return out
     try:
         with tempfile.TemporaryDirectory(prefix='plasmid-surgery-cohort_') as tmp:
-            out['result'] = compare.all_vs_all(members, tmp, threads)
+            out['result'] = compare.all_vs_all(members, tmp, threads, min_identity)
+            reference = next((m for m in members if m['is_reference']), None)
+            if reference is not None:
+                samples = [m for m in members if not m['is_reference']]
+                out['core'] = core.core_snps({'seq_id': reference['name'], 'seq': reference['contigs'][0]['seq']},
+                                             samples, Path(tmp) / 'core', threads, core_min_fraction, min_identity)
     except alignment.AlignmentError as e:
         logger.error(str(e))
         out['error'] = str(e).splitlines()[0]
@@ -553,6 +561,45 @@ def snp_heatmap(comparison: dict) -> str:
             f'<div class="scroll">{_heatmap(comparison, cell)}</div>')
 
 
+def core_section(comparison: dict) -> str:
+    """Core SNPs on the shared reference: a summary, the samples' calls, and a heatmap in the same order."""
+    result = comparison.get('core')
+    if result is None:
+        return ''
+    n, core_len = result['reference_length'], len(result['core_positions'])
+    strict = result['min_fraction'] >= 1
+    files = comparison.get('core_files') or []
+    head = ('<h3>Core SNPs on the reference</h3><p class="sub">Every reconstruction placed on the shared reference and '
+            'called at each of its positions (the same filters as above: close alignments only, one-to-one, repeats '
+            'of the sample or of the reference left out, ends trimmed, deletions not called). The <b>core</b> is the '
+            + ('positions called in every sample' if strict else
+               f"positions called in at least {result['min_fraction']:.0%} of the samples; each pair is compared at the "
+               'core positions both called')
+            + f", so every pair is compared over the same positions. Core: <b>{core_len:,} bp</b> "
+            f"({core_len / n:.0%} of the reference), {result['variable_sites']:,} variable sites"
+            + (f"; alignment in <code>{report.esc(files[0].name)}</code>, pairs in <code>{report.esc(files[1].name)}</code>"
+               if files else '') + '.</p>')
+    rows = ''.join(f"<tr><td>{report.esc(r['sample'])}</td><td>{report.bp(r['called_positions'])}</td>"
+                   f"<td>{report.fraction(r['called_fraction'])}</td>"
+                   f"<td>{report.bp(r['core_without_it']) if r['core_without_it'] != 'NA' else 'NA'}</td></tr>"
+                   for r in sorted(result['samples'], key=lambda r: r['called_fraction']))
+    table = ('<p class="sub">How much of the reference each sample is called at, fewest first. '
+             + ('"Core without it" is the core\'s size if that sample were left out: a fragmentary reconstruction '
+                'shrinks the core for everyone.' if strict else '') + '</p>'
+             '<div class="matrix-wrap"><table><thead><tr><th>Sample</th><th>Called</th><th>Of the reference</th>'
+             '<th>Core without it</th></tr></thead><tbody>' + rows + '</tbody></table></div>')
+    names = result['names']
+
+    def cell(i, j):
+        p = result['pairs'][(min(i, j), max(i, j))]
+        tip = (f"{names[i]} vs. {names[j]}: {p['snps']} core SNPs ({p['snps_in_clusters']} in clusters)\n"
+               f"compared at {p['compared_positions']:,} core positions")
+        return snp_colour(p['snps_outside_clusters']), tip, str(p['snps_outside_clusters'])
+    if core_len == 0:
+        return head + table + '<p class="sub na">No core: no reference position is called in enough samples.</p>'
+    return head + table + f'<div class="scroll">{_heatmap(comparison, cell)}</div>'
+
+
 def comparison_section(comparison: dict, page_dir: Path, pairs_name: str = None) -> str:
     if comparison is None:
         return ''
@@ -577,7 +624,8 @@ def comparison_section(comparison: dict, page_dir: Path, pairs_name: str = None)
                 'from another lineage); hover for all SNPs, indels (counted separately) and how much was compared. '
                 'Read every count with how much was compared: a pair is grey when less than '
                 f'{compare.MIN_COMPARED_FRACTION:.0%} of the shorter of the two was.</p>')
-    return head + notes + comparison_heatmap(comparison, page_dir) + snp_head + snp_heatmap(comparison)
+    return (head + notes + comparison_heatmap(comparison, page_dir) + snp_head + snp_heatmap(comparison)
+            + core_section(comparison))
 
 
 def embedded_reports(cohort: dict, page_dir: Path) -> str:
@@ -691,17 +739,22 @@ def write_reference_table(run_dirs, out, top: int = 3) -> None:
 
 
 def write_cohort(run_dirs, output, ref_id=None, title=None, embed_reports=False, compare_reconstructions_=True,
-                 threads: int = 1) -> Path:
-    """Write the cohort report; with the comparison, also <output stem>_pairs.tsv beside it."""
+                 threads: int = 1, min_identity: float = compare.SNP_MIN_IDENTITY, core_min_fraction: float = 1.0) -> Path:
+    """Write the cohort report; with the comparison, also <output stem>_pairs.tsv beside it, and the core SNP
+    outputs (<output stem>_core.fasta, _core_pairs.tsv, _core_samples.tsv)."""
     cohort = gather([Path(d) for d in run_dirs], ref_id)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     comparison, pairs = None, None
     if compare_reconstructions_:
-        comparison = compare_reconstructions(cohort, threads)
+        comparison = compare_reconstructions(cohort, threads, min_identity, core_min_fraction)
         if comparison['result'] is not None:
             pairs = output.with_name(f"{output.stem}_pairs.tsv")
             compare.write_pairs(pairs, comparison['result'])
+        if comparison['core'] is not None:
+            comparison['core_files'] = [output.with_name(f"{output.stem}_core{x}") for x in
+                                        ('.fasta', '_pairs.tsv', '_samples.tsv')]
+            core.write_outputs(comparison['core'], *comparison['core_files'])
     output.write_text(render_cohort(cohort, output.parent, title, embed_reports, comparison,
                                     pairs.name if pairs else None))
     return output
@@ -724,6 +777,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--title', help="Report title (default: 'plasmid-surgery cohort: <ref_id>')")
     parser.add_argument('--embed-reports', action='store_true', help="Embed each sample's own report.html in the cohort page, so its links work when the page is moved or shared on its own (otherwise links are relative paths to the run directories). Adds each report's size to the page")
     parser.add_argument('--no-compare', action='store_true', help="Don't compare the reconstructions with each other (by default, every run's reconstruction.fa and the reference are aligned all-vs-all with minimap2: a clustered matrix in the report, and <output stem>_pairs.tsv)")
+    parser.add_argument('--snp-min-identity', type=float, default=compare.SNP_MIN_IDENTITY, help=f"SNP distances (pairwise and core): alignments less identical than this aren't compared, as they're likely a divergent homolog rather than the same locus (default: {compare.SNP_MIN_IDENTITY})")
+    parser.add_argument('--core-min-fraction', type=float, default=1.0, help="Core SNPs: the fraction of samples a reference position must be called in to be in the core (default: 1.0, all). Below 1, each pair is compared at the core positions both called")
     parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for minimap2 (the comparison) (default: 1)")
     parser.add_argument('--log-level', default='info', help="Log level (default: 'info')")
     parser.add_argument('--version', action='version', version=f"%(prog)s {__version__}")
@@ -739,7 +794,7 @@ def main(argv=None) -> int:
             write_reference_table(args.runs, sys.stdout, args.top)
             return 0
         path = write_cohort(args.runs, args.output, args.ref, args.title, args.embed_reports,
-                            not args.no_compare, args.threads)
+                            not args.no_compare, args.threads, args.snp_min_identity, args.core_min_fraction)
     except CohortError as e:
         logger.error(str(e))
         return 1
