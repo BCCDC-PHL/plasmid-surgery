@@ -155,6 +155,11 @@ with a deletion and an insertion, and with an extra gene.
 
    Below it, **SNP distances** between every pair, from the same alignments:
 
+    - **Close alignments only**: alignments less than 99% identical aren't compared for SNPs. Between
+      close relatives they're a homolog from elsewhere (e.g. a chromosomal contig binned with the
+      plasmid, or a diverged IS copy), not the same locus; their sequence is counted as
+      `divergent_bases`. A SNP distance is for close relatives: between distant ones, little is
+      compared and none is reported (containment and identity, above, still describe them).
     - **One-to-one**: each stretch of either reconstruction is compared once (longest alignments first),
       and stretches that align more than once between the two (repeats, e.g. an IS that one assembly
       put in a contig of its own) are left out, so repeat copies aren't compared with each other.
@@ -169,9 +174,17 @@ with a deletion and an insertion, and with an extra gene.
       that shares only part of its sequence).
 
    In `<report name>_pairs.tsv`: `compared_bases`, `compared_fraction_a`/`_b`, `snps`,
-   `snps_in_clusters`, `snps_outside_clusters`, `snps_per_100kb` (outside clusters), `indels`, and
+   `snps_in_clusters`, `snps_outside_clusters`, `snps_per_100kb` (outside clusters), `indels`, `divergent_bases`, and
    `snp_distance_reported`. Distances are pairwise: each pair is compared over the sequence the two
    share, so pairs aren't all compared over the same stretch.
+
+   How much is noise: on public isolates reassembled with shovill, Unicycler and dragonflye
+   (hybrid), reconstructions of the same plasmid differed by 0 SNPs (outside clusters) in most pairs,
+   at most 2 between short-read reconstructions and the published plasmid, and at most 5 for hybrid
+   ones (about 0.15 and 0.4 per 100 kb overall). Read distances of that size as possibly identical.
+   Indels were more frequent with hybrid assemblies (about 3.5 per 100 kb against the published plasmid,
+   vs. 1.4 for short-read ones, and about 3 per 100 kb between hybrid and short-read reconstructions
+   of the same plasmid), which is why they're kept out of the distance.
 
 The first four sections can be ordered together, by coverage (the default), score, sample or input
 order. To compare samples, use coverage: the score ranks references within one sample's run, and with

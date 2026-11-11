@@ -177,3 +177,15 @@ def test_too_little_compared(tmp_path, base):
 def test_clustered():
     assert compare.clustered([100, 500, 900, 5000, 5100]) == {0, 1, 2}
     assert compare.clustered([100, 1200, 2300]) == set()
+
+
+@needs_minimap2
+def test_divergent_homolog_not_compared(tmp_path, base):
+    # B's copy of 20-23 kb is ~5% divergent (e.g. a chromosomal homolog binned in place of the plasmid's own copy):
+    # not compared for SNPs, reported as divergent bases
+    rng = random.Random(8)
+    homolog = substitute(base[20000:23000], sorted(rng.sample(range(3000), 150)))
+    row = snp_row([member('a', base), member('b', base[:20000], homolog, base[23000:])], tmp_path)
+    assert row['snps'] == 0
+    assert 2500 <= row['divergent_bases'] <= 3000
+    assert row['compared_bases'] <= 47000

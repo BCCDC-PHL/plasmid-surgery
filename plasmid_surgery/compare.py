@@ -17,6 +17,11 @@ by average-linkage clustering on 1 - mean containment, so similar plasmids sit t
 
 **SNP distances** (pair_snps), from the same alignments:
 
+- **close alignments only**: alignments under SNP_MIN_IDENTITY (gap-compressed) aren't compared for SNPs:
+  between close relatives, they're a homolog from elsewhere (e.g. a chromosomal contig binned with the
+  plasmid, or a diverged IS copy) rather than the same locus, and would add many false SNPs. Their
+  sequence is reported as ``divergent_bases``; between distant relatives, little is compared and no
+  distance is reported;
 - **one-to-one**: each stretch of either member is compared once (alignments kept best first, skipping any
   overlapping a kept one by more than OVERLAP_TOLERANCE bp on either side), and stretches aligning more
   than once between the pair (repeats, e.g. IS copies) are masked, so paralogous copies aren't compared;
@@ -51,6 +56,7 @@ END_TRIM = 100          # differences this close to an alignment's or contig's e
 CLUSTER_WINDOW = 1000
 CLUSTER_MIN = 3
 MIN_COMPARED_FRACTION = 0.5   # a SNP distance is shown if at least this fraction of the shorter member was compared
+SNP_MIN_IDENTITY = 0.99       # alignments less identical than this aren't compared for SNPs (divergent homologs)
 
 CS_RE = re.compile(r'(:\d+|\*[a-z][a-z]|[+-][a-z]+)')
 
@@ -58,7 +64,7 @@ CIGAR_RE = re.compile(r'(\d+)([MIDNSHP=X])')
 
 PAIR_FIELDNAMES = ['a', 'b', 'a_length', 'b_length', 'a_in_b', 'b_in_a', 'identity', 'aligned_bases_a', 'aligned_bases_b',
                    'compared_bases', 'compared_fraction_a', 'compared_fraction_b', 'snps', 'snps_in_clusters',
-                   'snps_outside_clusters', 'snps_per_100kb', 'indels', 'snp_distance_reported']
+                   'snps_outside_clusters', 'snps_per_100kb', 'indels', 'divergent_bases', 'snp_distance_reported']
 
 
 def _merged_length(intervals) -> int:
@@ -165,7 +171,8 @@ def all_vs_all(members: list[dict], tmpdir, threads: int = 1) -> dict:
             if cs is not None:
                 pair_alignments.setdefault((qi, ti), []).append({
                     'qk': qk, 'qlen': int(f[1]), 'qs': int(f[2]), 'qe': int(f[3]), 'strand': f[4],
-                    'tk': tk, 'tlen': int(f[6]), 'ts': int(f[7]), 'te': int(f[8]), 'block': block, 'cs': cs})
+                    'tk': tk, 'tlen': int(f[6]), 'ts': int(f[7]), 'te': int(f[8]), 'block': block, 'cs': cs,
+                    'identity': ident})
     aligned = [[0] * n for _ in range(n)]
     containment = [[0.0] * n for _ in range(n)]
     identity = [[None] * n for _ in range(n)]
@@ -271,7 +278,8 @@ def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
     SNPs and indels between members A (query) and B (target) from their alignments (with cs tags): one-to-one,
     repeats masked, ends trimmed (see the module docstring).
 
-    :return: dict with 'compared_bases', 'snps', 'snps_in_clusters', 'indels', and 'positions': each SNP as
+    :return: dict with 'compared_bases', 'snps', 'snps_in_clusters', 'indels', 'divergent_bases' (bases of A
+             in alignments under SNP_MIN_IDENTITY and in no compared one), and 'positions': each SNP as
              (B's contig index, position on it, A's contig index, position on it)
     """
     # Repeats: stretches of either member aligned more than once between the pair
@@ -284,7 +292,21 @@ def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
     compared, indels = 0, 0
     snp_positions = {}
     positions = []
-    for a in one_to_one(alignments):
+    close = [a for a in alignments if a.get('identity', 1.0) >= SNP_MIN_IDENTITY]
+    kept = one_to_one(close)
+    divergent = {}
+    for a in alignments:
+        if a.get('identity', 1.0) < SNP_MIN_IDENTITY:
+            divergent.setdefault(a['qk'], []).append((a['qs'], a['qe']))
+    taken = {}
+    for a in kept:
+        taken.setdefault(a['qk'], []).append((a['qs'], a['qe']))
+    divergent_bases = 0
+    for k, ivs in divergent.items():
+        excl = _Excluded(taken.get(k, []))
+        for s_, e_ in _merge(ivs):
+            divergent_bases += (e_ - s_) - sum(e2 - s2 for s2, e2 in excl.within(s_, e_))
+    for a in kept:
         ts, te, qs, qe = a['ts'], a['te'], a['qs'], a['qe']
         t_excl = _Excluded(t_mask.get(a['tk'], []) + [(ts, ts + END_TRIM), (te - END_TRIM, te),
                                                       (0, END_TRIM), (a['tlen'] - END_TRIM, a['tlen'])])
@@ -326,7 +348,7 @@ def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
     snps = sum(len(v) for v in snp_positions.values())
     in_clusters = sum(len(clustered(sorted(v))) for v in snp_positions.values())
     return {'compared_bases': compared, 'snps': snps, 'snps_in_clusters': in_clusters, 'indels': indels,
-            'positions': sorted(positions)}
+            'divergent_bases': divergent_bases, 'positions': sorted(positions)}
 
 
 def snp_distance_reported(compared: int, length_a: int, length_b: int) -> bool:
@@ -376,7 +398,8 @@ def snp_fields(result: dict, i: int, j: int) -> dict:
             'compared_fraction_b': round(compared / lb, 4) if lb else 0.0,
             'snps': snp['snps'], 'snps_in_clusters': snp['snps_in_clusters'], 'snps_outside_clusters': outside,
             'snps_per_100kb': round(outside / compared * 1e5, 2) if compared else 'NA',
-            'indels': snp['indels'], 'snp_distance_reported': snp_distance_reported(compared, la, lb)}
+            'indels': snp['indels'], 'divergent_bases': snp.get('divergent_bases', 0),
+            'snp_distance_reported': snp_distance_reported(compared, la, lb)}
 
 
 def write_pairs(path, result: dict) -> None:
