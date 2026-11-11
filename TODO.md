@@ -72,10 +72,12 @@ and spanning reads; leave variant calling to dedicated tools.
   one bin (2 isolates, every assembler); the ranking lists both, but nothing says "this bin is A + B".
   Report a bin's composition: which contigs go to which reference, and the bin fraction explained by
   the references together. Started: the report's "What the references explain" view (reconstruction
-  coordinates; per-reference and combined fractions). Next: a composition table (references picked
-  greedily by new sequence explained), and with --db-sketch a second search on the unexplained part.
-- [ ] Long reads spanning the joins between parts explained by different references, and read depth
-  along each contig (a step at a join), to tell a real cointegrate from a misassembly.
+  coordinates; per-reference and combined fractions). Composition table done (composition.tsv).
+  Next: with --db-sketch, a second search on the unexplained part.
+- [x] Joins: composition.tsv, joins.tsv (long reads spanning / clipped at each join between references,
+  widened to repeats; circular junctions), depth along the reconstruction; in the report.
+- [ ] Check joins on real data: the hybrid cointegrate-or-misassembly case; dragonflye's circular
+  junctions in the PLSDB set (rerun with reads).
 - [ ] *(PLSDB set)* **No bin contains the reference.** Whole plasmids (a 46 kb NDM-5 plasmid in every
   assembler, 45 kb NDM-5, 2-4 kb plasmids) were binned as chromosome, so there's no reconstruction to
   point the tool at. Document passing `chromosome.fasta` (or the assembly) as the reconstruction, or

@@ -141,7 +141,7 @@ def test_plasmid_surgery_with_database(db, tmp_path):
     code = plasmid_surgery(['--plasmid-reconstruction', str(db['complete']), '--db-sketch', str(db['sketch']),
                             '--db-fasta', str(db['fasta']), '--top', '2', '-o', str(out), '--log-level', 'error'])
     assert code == 0
-    assert sorted(p.name for p in out.iterdir()) == ['assessment.tsv', 'candidates.tsv', 'pA', 'pA_variant']
+    assert sorted(p.name for p in out.iterdir()) == ['assessment.tsv', 'candidates.tsv', 'composition.tsv', 'joins.tsv', 'pA', 'pA_variant']
     rows = read_tsv(out / 'assessment.tsv')
     assert [(r['ref_id'], r['rank']) for r in rows] == [('pA', '1'), ('pA_variant', '2')]
     assert [r['ref_id'] for r in read_tsv(out / 'candidates.tsv') if r['selected'] == 'True'] == ['pA', 'pA_variant']

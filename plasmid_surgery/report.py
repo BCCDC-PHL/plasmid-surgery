@@ -99,7 +99,16 @@ def load_run(outdir) -> dict:
         references.append(ref)
     references.sort(key=lambda r: int(r['row'].get('rank') or 0))
     contig_depth_path = outdir / name('contig_depth.tsv')
-    return {'outdir': outdir, 'prefix': prefix, 'assessment': top,
+    extra = {}
+    for key in ('composition', 'joins'):
+        path = outdir / name(f'{key}.tsv')
+        extra[key] = read_tsv(path) if path.exists() else None
+    extra['reconstruction_depth'] = {}
+    for kind in ('short', 'long'):
+        path = outdir / name(f'reconstruction_{kind}_reads_depth.bedgraph.gz')
+        if path.exists():
+            extra['reconstruction_depth'][kind] = read_contig_bedgraph(path)
+    return {**extra,'outdir': outdir, 'prefix': prefix, 'assessment': top,
             'candidates': read_tsv(candidates_path) if candidates_path.exists() else None,
             'contig_depth': ({r['contig_id']: r for r in read_tsv(contig_depth_path)}
                              if contig_depth_path.exists() else None),
@@ -469,6 +478,21 @@ def render_map(ref: dict, colours: dict, px_per_bp: float, *, standalone=False, 
 # --- the reconstruction's own coordinates ---
 
 EXPLAINED_COLOUR, ALTERNATIVE_COLOUR, UNEXPLAINED_COLOUR = '#4f6f8f', '#a9bccf', '#c0392b'
+JOIN_COLOURS = {'supported': '#3a9a5b', 'contradicted': '#c0392b', 'weak': '#e6b800', 'no_long_reads': '#9a9a9a'}
+JOIN_CALL_TEXT = {'supported': 'supported by long reads', 'contradicted': 'contradicted: reads clipped here, none spanning',
+                  'weak': 'weak evidence', 'no_long_reads': 'no long reads to check'}
+
+
+def read_contig_bedgraph(path) -> dict:
+    """{contig_id: [(start, end, depth)]} from a (gzipped) bedGraph."""
+    import gzip
+    out = {}
+    with (gzip.open(path, 'rt') if str(path).endswith('.gz') else open(path)) as f:
+        for line in f:
+            c = line.rstrip('\n').split('\t')
+            if len(c) >= 4:
+                out.setdefault(c[0], []).append((int(c[1]), int(c[2]), int(c[3])))
+    return out
 CONTIG_GAP_PX = 6
 
 
@@ -568,6 +592,61 @@ def render_reconstruction(run: dict, contigs, colours: dict, labels: dict, expla
                    extra='pointer-events="none"')
     y += 24
 
+    # Joins (joins.tsv): where the reconstruction switches between references, coloured by long-read evidence
+    if run.get('joins'):
+        s.text(LEFT - 8, y + 9, 'joins', size=10, fill=MUTED, anchor='end')
+        for j in run['joins']:
+            cid = j['contig_id']
+            if cid not in offsets:
+                continue
+            n = dict(contigs)[cid]
+            a, b = int(j['region_start']), int(j['region_end'])
+            pieces = [(a, n), (0, b)] if (j['type'] == 'circular_junction' and b < a) or (b < a) else [(a, b)]
+            if j['type'] == 'circular_junction' and a == b == n:
+                pieces = [(n, n)]
+            tip = (f"{j['join']} on {cid} ({j['type'].replace('_', ' ')}): {j['left']} | {j['right']}\n"
+                   f"{a:,}–{b:,} ({int(j['region_length']):,} bp)\n"
+                   f"{JOIN_CALL_TEXT.get(j['call'], j['call'])}"
+                   + (f"\nlong reads: {j['long_reads_spanning']} spanning, {j['long_reads_clipped']} clipped"
+                      if j['long_reads_spanning'] != 'NA' else '')
+                   + (f"\nlong-read depth either side: {j['long_depth_left']} | {j['long_depth_right']}"
+                      if j['long_depth_left'] != 'NA' else '')
+                   + (f"\nshort-read depth either side: {j['short_depth_left']} | {j['short_depth_right']}"
+                      if j['short_depth_left'] != 'NA' else ''))
+            colour = JOIN_COLOURS.get(j['call'], MUTED)
+            for pa, pb in pieces:
+                x0, w = xs(cid, pa), max((pb - pa) * px, 4)
+                if pb - pa == 0:
+                    x0 -= 2
+                s.rect(x0, y, w, 10, colour, title=tip, cls='join', data={'contig': cid}, stroke=INK,
+                       extra='stroke-width="0.4"')
+        y += LANE
+
+    # Read depth along the contigs (reads aligned to the reconstruction)
+    for kind, label in (('long', 'long-read depth'), ('short', 'short-read depth')):
+        by_contig = (run.get('reconstruction_depth') or {}).get(kind)
+        if not by_contig:
+            continue
+        s.text(LEFT - 8, y + DEPTH_TRACK / 2 + 4, label, size=10, fill=MUTED, anchor='end')
+        bins_by_contig = {cid: depth_bins(by_contig.get(cid, []), n, max(1, int(n * px / 2))) for cid, n in contigs}
+        everything = sorted(v for b in bins_by_contig.values() for v in b)
+        median_v = everything[len(everything) // 2] if everything else 0
+        top = max(2 * median_v, 1)
+        s.text(LEFT - 8, y + 8, f"{top:,.0f}", size=8, fill=MUTED, anchor='end')
+        for cid, n in contigs:
+            means = bins_by_contig[cid]
+            bin_bp = n / len(means)
+            s.line(offsets[cid], y + DEPTH_TRACK, offsets[cid] + n * px, y + DEPTH_TRACK, FAINT)
+            for i, m in enumerate(means):
+                if m <= 0:
+                    continue
+                h = min(m / top, 1) * DEPTH_TRACK
+                s.rect(xs(cid, i * bin_bp), y + DEPTH_TRACK - h, max(bin_bp * px, 0.5), h,
+                       DEPTH_COLOUR if m <= top else '#4a6585',
+                       title=f"{cid}:{i * bin_bp / 1000:.1f}–{(i + 1) * bin_bp / 1000:.1f} kb: mean {kind}-read depth {m:,.1f}",
+                       extra='shape-rendering="crispEdges"')
+        y += DEPTH_TRACK + 10
+
     # One row per reference that explains any of it; the rest in one line
     none = [ref['row']['ref_id'] for ref, _, frac in explained['per_ref'] if frac == 0]
     for ref, intervals, frac in explained['per_ref']:
@@ -659,6 +738,46 @@ def reconstruction_summary(run: dict, explained: dict) -> str:
     return text
 
 
+def composition_and_joins(run: dict) -> str:
+    """The composition (references picked by the sequence each newly explains) and the joins, as tables."""
+    out = []
+    comp = run.get('composition')
+    if comp:
+        out.append('<h3>Composition</h3><p class="sub">References picked one at a time by how much of the '
+                   'reconstruction each newly explains (alignments of at least <code>--min-join-block</code> bp).</p>'
+                   '<table><thead><tr><th>Order</th><th>Reference</th><th>Newly explained</th><th>Cumulative</th></tr>'
+                   '</thead><tbody>')
+        for r in comp:
+            name = 'explained by none' if r['ref_id'] == 'none' else esc(r['ref_id'])
+            cum = '' if r['ref_id'] == 'none' else fraction(r['cumulative_fraction'])
+            out.append(f"<tr><td>{esc(r['order']) if r['order'] != 'NA' else ''}</td><td>{name}</td>"
+                       f"<td>{bp(r['new_bases'])} bp ({fraction(r['new_fraction'])})</td><td>{cum}</td></tr>")
+        out.append('</tbody></table>')
+    rows = run.get('joins')
+    if rows:
+        out.append('<h3>Joins</h3><p class="sub">Where the reconstruction switches from one reference\'s sequence to '
+                   'another\'s (or to sequence none explains), widened to cover any repeat there, and each circular '
+                   'contig\'s own junction. With <code>--long-reads</code>: reads spanning each join with '
+                   '<code>--join-anchor</code> bp of unique sequence each side, and reads clipped at it (continuing '
+                   'elsewhere). Supported joins are consistent with one molecule (e.g. a cointegrate); contradicted '
+                   'ones suggest a misassembly through a shared repeat.</p>'
+                   '<div class="scroll"><table><thead><tr><th>Join</th><th>Contig</th><th>Type</th><th>Between</th>'
+                   '<th>Region</th><th>Spanning</th><th>Clipped</th><th>Depth either side</th><th>Call</th></tr>'
+                   '</thead><tbody>')
+        for j in rows:
+            depth = (f"long {j['long_depth_left']} | {j['long_depth_right']}" if j['long_depth_left'] != 'NA' else '')
+            if j['short_depth_left'] != 'NA':
+                depth += ('; ' if depth else '') + f"short {j['short_depth_left']} | {j['short_depth_right']}"
+            colour = JOIN_COLOURS.get(j['call'], MUTED)
+            out.append(f"<tr data-contig=\"{esc(j['contig_id'])}\"><td>{esc(j['join'])}</td><td>{esc(j['contig_id'])}</td>"
+                       f"<td>{esc(j['type'].replace('_', ' '))}</td><td>{esc(j['left'])} | {esc(j['right'])}</td>"
+                       f"<td>{bp(j['region_start'])}–{bp(j['region_end'])} ({bp(j['region_length'])} bp)</td>"
+                       f"<td>{esc(j['long_reads_spanning'])}</td><td>{esc(j['long_reads_clipped'])}</td><td>{esc(depth)}</td>"
+                       f"<td><span class=\"swatch\" style=\"background:{colour}\"></span>{esc(j['call'].replace('_', ' '))}</td></tr>")
+        out.append('</tbody></table></div>')
+    return ''.join(out)
+
+
 def reconstruction_section(run, contigs, colours, labels, explained) -> str:
     if not any('contig_start' in r for ref in run['references'] for r in ref['summary']):
         return ('<p class="sub na">Not available: this run predates the contig coordinates in <code>summary.tsv</code>; '
@@ -667,7 +786,8 @@ def reconstruction_section(run, contigs, colours, labels, explained) -> str:
 reference (dark; alternative placements of repeats lighter), and the parts that align to none (red). Percentages
 are of the whole reconstruction. With <code>--features</code>, genes mostly in parts no reference explains are red.
 {reconstruction_summary(run, explained)}</p>
-<div class="scroll">{render_reconstruction(run, contigs, colours, labels, explained)}</div>""")
+<div class="scroll">{render_reconstruction(run, contigs, colours, labels, explained)}</div>
+{composition_and_joins(run)}""")
 
 
 # --- the page ---

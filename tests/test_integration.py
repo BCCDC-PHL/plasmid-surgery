@@ -156,7 +156,7 @@ def test_default_outdir_is_cwd_and_tmpdir_cleaned_up(tmp_path, sim, monkeypatch)
                '--output-bases-per-line', '60', '--log-level', 'warning'])
     assert rc == 0
     # One subdirectory per reference, even for one, and the ranked assessment at the top level
-    assert sorted(p.name for p in tmp_path.iterdir()) == ['assessment.tsv', 'recon.fa', 'ref', 'ref.fa']
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['assessment.tsv', 'composition.tsv', 'joins.tsv', 'recon.fa', 'ref', 'ref.fa']
     assert sorted(p.name for p in (tmp_path / 'ref').iterdir()) == sorted(EXPECTED_OUTPUTS)
     lines = (tmp_path / 'ref' / 'scaffold.fa').read_text().splitlines()
     assert lines[0] == '>recon'
@@ -173,7 +173,7 @@ def test_outdir_and_prefix(tmp_path, sim):
     rc = main(['--plasmid-reconstruction', str(recon), '--ref-plasmid', str(ref),
                '-o', str(out_dir), '-p', 'sample1', '--log-level', 'warning'])
     assert rc == 0
-    assert sorted(p.name for p in out_dir.iterdir()) == ['ref', 'sample1_assessment.tsv']
+    assert sorted(p.name for p in out_dir.iterdir()) == ['ref', 'sample1_assessment.tsv', 'sample1_composition.tsv', 'sample1_joins.tsv']
     assert sorted(p.name for p in (out_dir / 'ref').iterdir()) == sorted(f"sample1_{name}" for name in EXPECTED_OUTPUTS)
     # Prefix is the default sample ID
     assert (out_dir / 'ref' / 'sample1_scaffold.fa').read_text().startswith('>sample1\n')
@@ -202,7 +202,7 @@ def test_several_references_ranked(tmp_path, sim):
                '--ref-plasmid', str(tmp_path / 'refs_a.fa'), str(tmp_path / 'refs_b.fa'),
                '-o', str(out_dir), '--log-level', 'warning'])
     assert rc == 0
-    assert sorted(p.name for p in out_dir.iterdir()) == ['assessment.tsv', 'partial', 'ref', 'unrelated']
+    assert sorted(p.name for p in out_dir.iterdir()) == ['assessment.tsv', 'composition.tsv', 'joins.tsv', 'partial', 'ref', 'unrelated']
     rows = read_tsv(out_dir / 'assessment.tsv')
     assert [r['ref_id'] for r in rows] == ['ref', 'partial', 'unrelated']
     assert [r['rank'] for r in rows] == ['1', '2', '3']
@@ -219,7 +219,7 @@ def test_duplicate_reference_ids_get_distinct_directories(tmp_path, sim):
     rc = main(['--plasmid-reconstruction', str(tmp_path / 'recon.fa'), '--ref-plasmid', str(tmp_path / 'refs.fa'),
                '-o', str(tmp_path / 'out'), '--log-level', 'warning'])
     assert rc == 0
-    assert sorted(p.name for p in (tmp_path / 'out').iterdir()) == ['assessment.tsv', 'ref', 'ref_2']
+    assert sorted(p.name for p in (tmp_path / 'out').iterdir()) == ['assessment.tsv', 'composition.tsv', 'joins.tsv', 'ref', 'ref_2']
 
 
 def test_reference_source_required_and_exclusive(tmp_path):

@@ -15,6 +15,7 @@ import plasmid_surgery.alignment as alignment
 import plasmid_surgery.assessment as assessment
 import plasmid_surgery.context as context
 import plasmid_surgery.features as features
+import plasmid_surgery.joins as joins
 import plasmid_surgery.reads as reads
 import plasmid_surgery.refs as refs
 
@@ -45,6 +46,10 @@ TOP_LEVEL_FILENAMES = {
     'assessment': 'assessment.tsv',   # one row per reference, ranked
     'candidates': 'candidates.tsv',   # with --db-sketch only
     'contig_depth': 'contig_depth.tsv',   # with reads only
+    'composition': 'composition.tsv',     # references picked by the reconstruction sequence each newly explains
+    'joins': 'joins.tsv',                 # where the reconstruction switches between references, with read evidence
+    'reconstruction_short_depth': 'reconstruction_short_reads_depth.bedgraph.gz',   # with --short-reads
+    'reconstruction_long_depth': 'reconstruction_long_reads_depth.bedgraph.gz',     # with --long-reads
 }
 
 SUMMARY_OUTPUT_FIELDNAMES = [
@@ -113,6 +118,8 @@ def build_parser() -> argparse.ArgumentParser:
     reads_group.add_argument('--min-read-identity', type=float, help=f"Minimum identity of a read alignment to count (default: {reads.DEFAULT_MIN_IDENTITY['short']} for short reads, {reads.DEFAULT_MIN_IDENTITY['long']} for long reads)")
     reads_group.add_argument('--min-read-depth', type=int, default=reads.DEFAULT_MIN_DEPTH, help=f"Minimum read depth for a reference base to count as in the reads (default: {reads.DEFAULT_MIN_DEPTH})")
     reads_group.add_argument('--reads-cache', metavar='DIR', help="Directory to cache read depth along each reference in, keyed by the reads files (path and size), settings and reference sequence: runs for other bins of the same sample against the same references then skip the read alignment")
+    parser.add_argument('--min-join-block', type=int, default=joins.DEFAULT_MIN_BLOCK, help=f"Joins (joins.tsv): the shortest stretch of the reconstruction explained by one reference (or none) that counts; shorter alignments, such as scattered IS hits, don't make joins (default: {joins.DEFAULT_MIN_BLOCK})")
+    parser.add_argument('--join-anchor', type=int, default=joins.DEFAULT_ANCHOR, help=f"With --long-reads: how far a long read must align beyond each side of a join to count as spanning it (default: {joins.DEFAULT_ANCHOR})")
     parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for minimap2 (alignment to each reference; reads) and, with --db-sketch, mash (default: 1)")
     parser.add_argument('-o', '--outdir', default='.', help="Output directory (default: current directory)")
     parser.add_argument('-p', '--prefix', help="Prefix for output filenames, e.g. '-p sample1' gives 'sample1_assessment.tsv' (default: no prefix)")
@@ -369,6 +376,7 @@ def run(args, tmpdir) -> int:
 
     results = []
     per_reference_outputs = []
+    placements_by_ref = []
     for ref_plasmid, dirname, depth in zip(references, unique_dirnames([r['seq_id'] for r in references]), depths):
         outputs = output_paths(outdir / dirname, args.prefix)
         os.makedirs(outdir / dirname, exist_ok=True)
@@ -378,9 +386,10 @@ def run(args, tmpdir) -> int:
                     ref_plasmid.get('description', ''))
         results.append(assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs, ref_tmpdir, sample_id,
                                         assembly_contigs, bins, ref_feature_input, sample_feature_input, depth,
-                                        contig_reads_depth))
+                                        contig_reads_depth, placements_by_ref))
         per_reference_outputs.append(outputs)
 
+    write_joins(args, plasmid_reconstruction_contigs, placements_by_ref, sets, tmpdir, top_level)
     rank_references(results)
     fieldnames = assessment_fieldnames()
     for metrics, outputs in zip(results, per_reference_outputs):
@@ -398,15 +407,38 @@ def run(args, tmpdir) -> int:
     return 0
 
 
+def write_joins(args, contigs, placements_by_ref, read_sets, tmpdir, top_level) -> None:
+    """The reconstruction's composition (composition.tsv) and joins with their read evidence (joins.tsv)."""
+    comp = joins.composition(contigs, placements_by_ref, args.min_join_block)
+    joins.write_rows(top_level['composition'], comp['rows'], joins.COMPOSITION_FIELDNAMES)
+    evidence = None
+    if read_sets:
+        evidence = joins.reconstruction_reads(read_sets, contigs, Path(tmpdir) / 'reads', threads=args.threads,
+                                              cache_dir=args.reads_cache)
+        for kind, result in evidence.items():
+            joins.write_depths(top_level[f'reconstruction_{kind}_depth'], contigs, result['depth'])
+    found = joins.find_joins(contigs, comp, args.min_join_block)
+    if found:
+        joins.widen_to_repeats(found, contigs, joins.repeat_intervals(contigs, Path(tmpdir) / 'joins', args.threads))
+    rows = joins.assess_joins(contigs, found, evidence, args.join_anchor)
+    joins.write_rows(top_level['joins'], rows, joins.JOINS_FIELDNAMES)
+    for r in rows:
+        if r['call'] in ('contradicted', 'weak'):
+            logger.warning(f"Join {r['join']} on {r['contig_id']} ({r['left']} | {r['right']}, "
+                           f"{r['region_start']:,}-{r['region_end']:,}): {r['call']} "
+                           f"({r['long_reads_spanning']} long reads spanning, {r['long_reads_clipped']} clipped)")
+
+
 def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs, tmpdir, sample_id,
                      assembly_contigs, bins, ref_feature_input, sample_feature_input, depth=None,
-                     contig_reads_depth=None) -> dict:
+                     contig_reads_depth=None, placements_by_ref=None) -> dict:
     """
     Assess the reconstruction against one reference, writing that reference's outputs
     (except assessment.tsv, written once all references are ranked).
 
     :param depth: read depth along the reference (reads.reads_depth), if reads were given
     :param contig_reads_depth: mean read depth per contig sequence key (reads.contig_depths), if reads were given
+    :param placements_by_ref: if given, (ref_id, the contig intervals the placements cover) is appended to it
 
     :return: the assessment metrics
     """
@@ -421,6 +453,8 @@ def assess_reference(args, plasmid_reconstruction_contigs, ref_plasmid, outputs,
         raise
     aligned_contigs = recon_alignments['placements']
     alternative_placements = recon_alignments['alternatives']
+    if placements_by_ref is not None:
+        placements_by_ref.append((ref_plasmid_id, joins.contig_intervals(aligned_contigs, alternative_placements)))
     failed_alignments = recon_alignments['failed']
 
     output_seq = alignment.build_output_sequence(aligned_contigs, ref_plasmid_length, alternative_placements)
