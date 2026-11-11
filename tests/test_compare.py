@@ -70,6 +70,11 @@ def test_cohort_report_compares_reconstructions(runs, tmp_path):
     ref_id = cohort.gather(runs)['ref_id']
     in_ref = [float(r['b_in_a']) for r in rows if r['a'] == ref_id]
     assert len(in_ref) == len(runs) and min(in_ref) > 0.5
+    assert '<h3>SNP distances</h3>' in html
+    # The example's samples differ from the reference by SNPs and indels, not by lineage: few SNPs per pair
+    assert all(r['snp_distance_reported'] in ('True', 'False') and int(r['snps']) >= 0 for r in rows)
+    s1 = next(r for r in rows if {r['a'], r['b']} == {ref_id, 'S1_complete'})
+    assert s1['snp_distance_reported'] == 'True' and int(s1['compared_bases']) > 20000
 
 
 @needs_minimap2
@@ -97,3 +102,78 @@ def test_covered_blocks_split_at_large_indels():
     f = ['q', '1000', '0', '1000', '-', 't', '1000', '0', '1000', '990', '1000', '60', 'cg:Z:400M5I200M200D395M']
     q, t = compare.covered_blocks(f)
     assert t == [(0, 600), (800, 1195)] and q == [(395, 1000), (0, 395)]
+
+
+# --- SNP distances ---
+
+def substitute(seq, positions):
+    s = list(seq)
+    for p in positions:
+        s[p] = {'A': 'C', 'C': 'G', 'G': 'T', 'T': 'A'}[s[p]]
+    return ''.join(s)
+
+
+def snp_row(members, tmp_path, i=0, j=1):
+    r = compare.all_vs_all(members, tmp_path)
+    row = next(x for x in compare.pair_rows(r) if x['a'] == members[i]['name'] and x['b'] == members[j]['name'])
+    return row
+
+
+@pytest.fixture(scope='module')
+def base():
+    return random_seq(random.Random(21), 50000)
+
+
+@needs_minimap2
+@pytest.mark.parametrize('reverse', [False, True])
+def test_scattered_snps(tmp_path, base, reverse):
+    variant = substitute(base, range(2000, 48000, 2300))             # 20 SNPs, 2.3 kb apart
+    if reverse:
+        from tests.simulate import revcomp
+        variant = revcomp(variant)
+    row = snp_row([member('a', base), member('b', variant)], tmp_path)
+    assert (row['snps'], row['snps_in_clusters'], row['indels']) == (20, 0, 0)
+    assert 49000 <= row['compared_bases'] <= 50000 and row['snp_distance_reported']
+    assert row['snps_per_100kb'] == pytest.approx(40, abs=1)
+
+
+@needs_minimap2
+def test_clustered_snps_and_indels(tmp_path, base):
+    variant = substitute(base, list(range(10000, 10900, 100)) + [20000, 30000])   # 9 in 900 bp + 2 apart
+    variant = variant[:40000] + variant[40003:45000] + 'ACGT' + variant[45000:]    # a 3 bp deletion, a 4 bp insertion
+    row = snp_row([member('a', base), member('b', variant)], tmp_path)
+    assert (row['snps'], row['snps_in_clusters'], row['snps_outside_clusters'], row['indels']) == (11, 9, 2, 2)
+
+
+@needs_minimap2
+def test_contig_ends_trimmed(tmp_path, base):
+    # B in two contigs; a SNP 30 bp from a contig end doesn't count, one well inside does
+    variant = substitute(base, [24970, 35000])
+    row = snp_row([member('a', base), member('b', variant[:25000], variant[25000:])], tmp_path)
+    assert row['snps'] == 1
+
+
+@needs_minimap2
+def test_repeat_copies(tmp_path):
+    rng = random.Random(5)
+    insertion = random_seq(rng, 1500)
+    diverged = substitute(insertion, range(100, 1500, 300))          # a second copy, 5 SNPs apart
+    x, y, z = random_seq(rng, 20000), random_seq(rng, 20000), random_seq(rng, 20000)
+    a = x + insertion + y + diverged + z
+    # Whole plasmids: each copy is compared with its own counterpart
+    row = snp_row([member('a', a), member('b', a)], tmp_path)
+    assert row['snps'] == 0 and row['compared_bases'] >= len(a) - 400
+    # B with the diverged copy as a contig of its own (as short-read assemblers do with repeats): it aligns to
+    # both of A's copies, so it's masked rather than compared with the wrong one
+    row = snp_row([member('a', a), member('b', x + insertion + y, diverged, z)], tmp_path / 'collapsed')
+    assert row['snps'] == 0
+    assert row['compared_bases'] <= len(a) - 1500
+@needs_minimap2
+def test_too_little_compared(tmp_path, base):
+    row = snp_row([member('a', base), member('b', base[:20000] + random_seq(random.Random(9), 30000))], tmp_path)
+    assert row['compared_bases'] < 25000 and not row['snp_distance_reported']
+
+
+def test_clustered():
+    assert compare.clustered([100, 500, 900, 5000, 5100]) == {0, 1, 2}
+    assert compare.clustered([100, 1200, 2300]) == set()

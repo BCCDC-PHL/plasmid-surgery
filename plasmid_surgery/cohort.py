@@ -472,8 +472,8 @@ def containment_colour(v: float) -> str:
     return '#' + ''.join(f'{round(a + (b - a) * t):02x}' for a, b in zip(lo, hi))
 
 
-def comparison_heatmap(comparison: dict, page_dir: Path) -> str:
-    """The members against each other: cell (row, column) = how much of the row's sequence the column contains."""
+def _heatmap(comparison: dict, cell_fn) -> str:
+    """Members against each other in clustered order; cell_fn(i, j) -> (fill, tooltip, text or '')."""
     result, members = comparison['result'], comparison['members']
     order = result['order']
     n = len(order)
@@ -485,29 +485,72 @@ def comparison_heatmap(comparison: dict, page_dir: Path) -> str:
     width, height = left + n * cell + 10, top + n * cell + 10
     s = report.Svg()
     for r, i in enumerate(order):
-        name = names[i] + (' (reference)' if members[i]['is_reference'] else '')
         weight = 'bold' if members[i]['is_reference'] else 'normal'
-        s.text(left - 6, top + r * cell + cell / 2 + 4, name, size=10, anchor='end', weight=weight)
+        s.text(left - 6, top + r * cell + cell / 2 + 4, shown[i], size=10, anchor='end', weight=weight)
         x = left + r * cell + cell / 2 + 4
-        s.text(x, top - 6, name, size=10, weight=weight, extra=f'transform="rotate(-90 {x:.1f} {top - 6:.1f})"')
+        s.text(x, top - 6, shown[i], size=10, weight=weight, extra=f'transform="rotate(-90 {x:.1f} {top - 6:.1f})"')
     for r, i in enumerate(order):
         for c, j in enumerate(order):
             if i == j:
                 s.rect(left + c * cell, top + r * cell, cell - 1, cell - 1, report.FAINT)
                 continue
-            v = result['containment'][i][j]
-            ident = result['identity'][i][j]
-            tip = (f"{names[i]} in {names[j]}: {v:.1%} ({result['aligned'][i][j]:,} of {result['lengths'][i]:,} bp)\n"
-                   f"{names[j]} in {names[i]}: {result['containment'][j][i]:.1%} "
-                   f"({result['aligned'][j][i]:,} of {result['lengths'][j]:,} bp)"
-                   + (f"\nidentity {ident:.2%}" if ident is not None else ''))
-            s.rect(left + c * cell, top + r * cell, cell - 1, cell - 1, containment_colour(v), title=tip)
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" '
-           f'viewBox="0 0 {width:.0f} {height:.0f}" class="map">{"".join(s.parts)}</svg>')
+            fill, tip, text = cell_fn(i, j)
+            s.rect(left + c * cell, top + r * cell, cell - 1, cell - 1, fill, title=tip)
+            if text and cell >= 16:
+                dark = fill.startswith("#") and sum(int(fill[k:k + 2], 16) for k in (1, 3, 5)) < 480
+                s.text(left + c * cell + (cell - 1) / 2, top + r * cell + cell / 2 + 3, text, size=8,
+                       fill='white' if dark else report.INK, anchor='middle', extra='pointer-events="none"')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" '
+            f'viewBox="0 0 {width:.0f} {height:.0f}" class="map">{"".join(s.parts)}</svg>')
+
+
+def comparison_heatmap(comparison: dict, page_dir: Path) -> str:
+    """The members against each other: cell (row, column) = how much of the row's sequence the column contains."""
+    result = comparison['result']
+    names = result['names']
+
+    def cell(i, j):
+        v = result['containment'][i][j]
+        ident = result['identity'][i][j]
+        tip = (f"{names[i]} in {names[j]}: {v:.1%} ({result['aligned'][i][j]:,} of {result['lengths'][i]:,} bp)\n"
+               f"{names[j]} in {names[i]}: {result['containment'][j][i]:.1%} "
+               f"({result['aligned'][j][i]:,} of {result['lengths'][j]:,} bp)"
+               + (f"\nidentity {ident:.2%}" if ident is not None else ''))
+        return containment_colour(v), tip, ''
     scale = ''.join(f'<span class="key" style="--c:{containment_colour(v)};border:1px solid #ccc"></span>'
                     for v in (0, 0.25, 0.5, 0.75, 1))
     return (f'<div class="legend"><span class="legend-item">contained: 0% {scale} 100%</span></div>'
-            f'<div class="scroll">{svg}</div>')
+            f'<div class="scroll">{_heatmap(comparison, cell)}</div>')
+
+
+SNP_SCALE_MAX = 50     # SNPs (outside clusters) at which the SNP heatmap's colour is lightest
+
+
+def snp_colour(snps: int) -> str:
+    """Dark (0 SNPs) to light (SNP_SCALE_MAX or more), on a square-root scale."""
+    return containment_colour(1 - min(snps, SNP_SCALE_MAX) ** 0.5 / SNP_SCALE_MAX ** 0.5)
+
+
+def snp_heatmap(comparison: dict) -> str:
+    """SNP distances (outside clusters), symmetric, in the same order; pairs compared over too little in grey."""
+    result = comparison['result']
+    names = result['names']
+
+    def cell(i, j):
+        f = compare.snp_fields(result, i, j)
+        tip = (f"{names[i]} vs. {names[j]}: {f['snps']} SNPs ({f['snps_in_clusters']} in clusters), {f['indels']} indels\n"
+               f"compared {f['compared_bases']:,} bp ({f['compared_fraction_a']:.0%} of {names[i]}, "
+               f"{f['compared_fraction_b']:.0%} of {names[j]})"
+               + (f"\n{f['snps_per_100kb']} SNPs per 100 kb outside clusters" if f['snps_per_100kb'] != 'NA' else ''))
+        if not f['snp_distance_reported']:
+            return '#eeeeee', tip + "\ntoo little compared for a distance", ''
+        return snp_colour(f['snps_outside_clusters']), tip, str(f['snps_outside_clusters'])
+    scale = ''.join(f'<span class="key" style="--c:{snp_colour(v)};border:1px solid #ccc"></span>'
+                    for v in (0, 2, 10, 25, 50))
+    return (f'<div class="legend"><span class="legend-item">SNPs: 0 {scale} {SNP_SCALE_MAX}+</span>'
+            f'<span class="legend-item"><span class="key" style="--c:#eeeeee;border:1px solid #ccc"></span>'
+            f'less than {compare.MIN_COMPARED_FRACTION:.0%} of the shorter compared</span></div>'
+            f'<div class="scroll">{_heatmap(comparison, cell)}</div>')
 
 
 def comparison_section(comparison: dict, page_dir: Path, pairs_name: str = None) -> str:
@@ -527,7 +570,14 @@ def comparison_section(comparison: dict, page_dir: Path, pairs_name: str = None)
                   f'it; rerun to include): {report.esc(", ".join(comparison["missing"]))}</p>')
     if comparison['result'] is None:
         return head + notes + f'<p class="sub na">Not drawn: {report.esc(comparison["error"] or "")}</p>'
-    return head + notes + comparison_heatmap(comparison, page_dir)
+    snp_head = ('<h3>SNP distances</h3><p class="sub">SNPs between each pair, from one-to-one alignments: each '
+                'stretch compared once, stretches aligning more than once between the pair (repeats) left out, and '
+                f'differences within {compare.END_TRIM} bp of an alignment or contig end ignored. Cells show SNPs '
+                f'outside clusters ({compare.CLUSTER_MIN} or more within {compare.CLUSTER_WINDOW:,} bp, e.g. a block '
+                'from another lineage); hover for all SNPs, indels (counted separately) and how much was compared. '
+                'Read every count with how much was compared: a pair is grey when less than '
+                f'{compare.MIN_COMPARED_FRACTION:.0%} of the shorter of the two was.</p>')
+    return head + notes + comparison_heatmap(comparison, page_dir) + snp_head + snp_heatmap(comparison)
 
 
 def embedded_reports(cohort: dict, page_dir: Path) -> str:

@@ -122,9 +122,13 @@ and spanning reads; leave variant calling to dedicated tools.
 
 - [x] Cohort: reconstructions compared all-vs-all with the reference (reconstruction.fa in each run;
   containment both ways, identity, clustered heatmap, <report>_pairs.tsv).
+- [x] Cohort: pairwise SNP distances (one-to-one, repeats masked, ends trimmed, clusters apart, compared
+  length reported).
+- [ ] SNP distances: measure the false-SNP rate on the PLSDB set (same plasmid, different assemblers / truth:
+  expect ~0); then consider read support per SNP, and a core (anchored) alignment option.
 - [ ] Cohort: pairwise differences annotated as real vs. reconstruction artifact (in the assembly / in the
-  reads) for mixed short-read / long-read cohorts; shared off-reference blocks; SNP distances; an
-  automatic anchor (the most complete reconstruction) when no shared reference fits.
+  reads) for mixed short-read / long-read cohorts; shared off-reference blocks; an automatic anchor (the
+  most complete reconstruction) when no shared reference fits.
 - [ ] Cohort view across several references at once (e.g. one section per reference).
 - [ ] Cluster samples in the cohort view by their coverage/gene profiles, rather than sorting.
 - [ ] PNG export of maps (for tools that can't take SVG).

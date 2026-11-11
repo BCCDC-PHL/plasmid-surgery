@@ -153,6 +153,26 @@ with a deletion and an insertion, and with an extra gene.
    identical (gap-compressed); indels of 50 bp or more within an alignment don't count as contained.
    `--no-compare` skips it; `-t` sets minimap2's threads.
 
+   Below it, **SNP distances** between every pair, from the same alignments:
+
+    - **One-to-one**: each stretch of either reconstruction is compared once (longest alignments first),
+      and stretches that align more than once between the two (repeats, e.g. an IS that one assembly
+      put in a contig of its own) are left out, so repeat copies aren't compared with each other.
+    - **Trimmed**: differences within 100 bp of an alignment's or a contig's end are ignored; assembly
+      errors concentrate at contig ends.
+    - **SNPs and indels separately**: long-read assembly errors are mostly indels (homopolymers), so
+      the distance counts substitutions only; indels are in the tooltip and the table.
+    - **Clusters**: SNPs with at least 2 others within 1 kb are counted apart, as a block from another
+      lineage brings many at once. Cells show the SNPs outside clusters.
+    - **How much was compared**: every count comes with the bases compared. A pair is grey, with no
+      distance, when less than half of the shorter of the two was compared (e.g. a small fragment
+      that shares only part of its sequence).
+
+   In `<report name>_pairs.tsv`: `compared_bases`, `compared_fraction_a`/`_b`, `snps`,
+   `snps_in_clusters`, `snps_outside_clusters`, `snps_per_100kb` (outside clusters), `indels`, and
+   `snp_distance_reported`. Distances are pairwise: each pair is compared over the sequence the two
+   share, so pairs aren't all compared over the same stretch.
+
 The first four sections can be ordered together, by coverage (the default), score, sample or input
 order. To compare samples, use coverage: the score ranks references within one sample's run, and with
 `--assembly` it uses the assembly's coverage, so it doesn't reflect sequence lost by binning.
