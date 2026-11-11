@@ -11,7 +11,9 @@ Pairs that are the same plasmid should differ by ~0 SNPs:
 SAMN13951917 (reads don't match its truth) is left out of the *_vs_truth categories.
 
 Writes snp_noise/pairs.tsv (one row per same-plasmid pair) and snp_noise/snps.tsv (each SNP, with its
-distance to the nearest contig end on either member), and prints a summary per category.
+distance to the nearest contig end on either member), and prints a summary per category. Then core SNPs
+(plasmid_surgery.core) per truth plasmid, with it as the reference and the bins matching it as samples:
+snp_noise/core_pairs.tsv and a summary.
 Usage (from exploration/plsdb-reassembly/, env plasmid-surgery): python scripts/measure_snp_noise.py [threads]
 """
 import csv
@@ -20,7 +22,7 @@ import sys
 import tempfile
 from collections import defaultdict
 
-from plasmid_surgery import compare, parsers
+from plasmid_surgery import compare, core, parsers
 
 EXCLUDE_TRUTH = {'SAMN13951917'}
 SHORT = {'shovill', 'unicycler'}
@@ -89,6 +91,41 @@ def main(threads=8):
                                   sum(r['snps_outside_clusters'] == 0 for r in rep),
                                   sum(r['snps_in_clusters'] for r in rs), ind,
                                   round(ind / comp * 1e5, 3) if comp else 'NA'])))
+    # Core SNPs: each truth plasmid as the reference, the bins matching it as samples
+    core_rows = []
+    for bs in sorted(bins):
+        if bs in EXCLUDE_TRUTH:
+            continue
+        truth = {r['seq_id']: r for r in parsers.parse_fasta(f'truth/{bs}.fasta')}
+        for acc, rec in truth.items():
+            matching = [(a, b) for a, b, ref in bins[bs] if ref == acc]
+            if len(matching) < 2:
+                continue
+            samples = [{'name': f'{a}:{b}', 'contigs': parsers.parse_fasta(f'mob_recon/{a}/{bs}/{b}.fasta')}
+                       for a, b in matching]
+            with tempfile.TemporaryDirectory() as tmp:
+                r = core.core_snps({'seq_id': acc, 'seq': rec['seq']}, samples, tmp, threads)
+            for p in r['pairs'].values():
+                core_rows.append({'biosample': bs, 'truth_plasmid': acc, 'truth_length': len(rec['seq']),
+                                  'core_positions': len(r['core_positions']), **p})
+    with open('snp_noise/core_pairs.tsv', 'w', newline='') as f:
+        if core_rows:
+            w = csv.DictWriter(f, list(core_rows[0]), delimiter='\t', lineterminator='\n')
+            w.writeheader(); w.writerows(core_rows)
+    print('\ncore SNPs (truth plasmid as reference; pairs of bins and truth-vs-bin)')
+    for label, sel in (('truth_vs_bin', lambda r: r['a'] == r['truth_plasmid']),
+                       ('bin_vs_bin', lambda r: r['a'] != r['truth_plasmid'])):
+        rs = [r for r in core_rows if sel(r)]
+        comp = sum(r['compared_positions'] for r in rs)
+        out = sum(r['snps_outside_clusters'] for r in rs)
+        from collections import Counter as C
+        print(label, 'pairs', len(rs), 'compared_Mb', round(comp / 1e6, 2), 'snps_outside', out,
+              'per_100kb', round(out / comp * 1e5, 3) if comp else 'NA', 'in_clusters', sum(r['snps_in_clusters'] for r in rs),
+              'distribution', dict(sorted(C(r['snps_outside_clusters'] for r in rs).items())))
+    cores = {(r['biosample'], r['truth_plasmid']): (r['core_positions'], r['truth_length']) for r in core_rows}
+    fr = sorted(c / n for c, n in cores.values())
+    print('core as fraction of the truth plasmid: median', round(fr[len(fr) // 2], 3), 'min', round(fr[0], 3), 'n', len(fr))
+
     print('\nSNPs by distance to the nearest contig end')
     edges = [(100, 500), (500, 2000), (2000, 10 ** 9)]
     for cat in sorted({r['category'] for r in snp_rows}):

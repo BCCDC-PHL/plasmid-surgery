@@ -124,8 +124,9 @@ and spanning reads; leave variant calling to dedicated tools.
   containment both ways, identity, clustered heatmap, <report>_pairs.tsv).
 - [x] Cohort: pairwise SNP distances (one-to-one, repeats masked, ends trimmed, clusters apart, compared
   length reported).
-- [ ] SNP distances: measure the false-SNP rate on the PLSDB set (same plasmid, different assemblers / truth:
-  expect ~0); then consider read support per SNP, and a core (anchored) alignment option.
+- [x] SNP distances: false-SNP rate measured on the PLSDB set (exploration snp_noise/FINDINGS.md).
+- [x] Core SNPs on the shared reference (core.py; cohort _core.fasta / _core_pairs.tsv / _core_samples.tsv).
+- [ ] SNP distances: read support per SNP; a circular reference's origin in the core (now ~200 bp lost).
 - [ ] Cohort: pairwise differences annotated as real vs. reconstruction artifact (in the assembly / in the
   reads) for mixed short-read / long-read cohorts; shared off-reference blocks; an automatic anchor (the
   most complete reconstruction) when no shared reference fits.
