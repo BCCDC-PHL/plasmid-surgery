@@ -271,7 +271,8 @@ def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
     SNPs and indels between members A (query) and B (target) from their alignments (with cs tags): one-to-one,
     repeats masked, ends trimmed (see the module docstring).
 
-    :return: dict with 'compared_bases', 'snps', 'snps_in_clusters', 'indels'
+    :return: dict with 'compared_bases', 'snps', 'snps_in_clusters', 'indels', and 'positions': each SNP as
+             (B's contig index, position on it, A's contig index, position on it)
     """
     # Repeats: stretches of either member aligned more than once between the pair
     q_mask, t_mask = {}, {}
@@ -282,6 +283,7 @@ def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
     t_mask = {k: _multiply_covered(v) for k, v in t_mask.items()}
     compared, indels = 0, 0
     snp_positions = {}
+    positions = []
     for a in one_to_one(alignments):
         ts, te, qs, qe = a['ts'], a['te'], a['qs'], a['qe']
         t_excl = _Excluded(t_mask.get(a['tk'], []) + [(ts, ts + END_TRIM), (te - END_TRIM, te),
@@ -310,6 +312,7 @@ def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
                 if t not in t_excl and qpos(qoff) not in q_excl:
                     compared += 1
                     snp_positions.setdefault(a['tk'], []).append(t)
+                    positions.append((a['tk'], t, a['qk'], qpos(qoff)))
                 t += 1
                 qoff += 1
             elif kind == '+':
@@ -322,7 +325,8 @@ def pair_snps(alignments: list[dict], length_a: int, length_b: int) -> dict:
                 t += len(op) - 1
     snps = sum(len(v) for v in snp_positions.values())
     in_clusters = sum(len(clustered(sorted(v))) for v in snp_positions.values())
-    return {'compared_bases': compared, 'snps': snps, 'snps_in_clusters': in_clusters, 'indels': indels}
+    return {'compared_bases': compared, 'snps': snps, 'snps_in_clusters': in_clusters, 'indels': indels,
+            'positions': sorted(positions)}
 
 
 def snp_distance_reported(compared: int, length_a: int, length_b: int) -> bool:
