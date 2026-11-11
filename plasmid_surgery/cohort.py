@@ -16,12 +16,16 @@ import json
 import logging
 import os
 import sys
+import tempfile
 
 from collections import Counter
 from datetime import date
 from pathlib import Path
 
 from plasmid_surgery import report
+import plasmid_surgery.alignment as alignment
+import plasmid_surgery.compare as compare
+import plasmid_surgery.parsers as parsers
 
 logger = logging.getLogger(__name__)
 
@@ -421,6 +425,111 @@ JS = """
 """
 
 
+# --- comparing the reconstructions with each other ---
+
+def comparison_members(cohort: dict) -> tuple[list[dict], list[str]]:
+    """The shared reference and each sample's reconstruction (reconstruction.fa), and the samples without one."""
+    members, missing = [], []
+    for s in cohort['samples']:
+        run = s['run']
+        ref_fasta = s['ref']['dir'] / f"{run['prefix']}reference.fa"
+        if ref_fasta.exists() and not members:
+            members.append({'name': cohort['ref_id'], 'is_reference': True, 'contigs': parsers.parse_fasta(ref_fasta)})
+    for s in cohort['samples']:
+        run = s['run']
+        path = run['outdir'] / f"{run['prefix']}reconstruction.fa"
+        if path.exists():
+            members.append({'name': s['sample_id'], 'is_reference': False, 'contigs': parsers.parse_fasta(path),
+                            'sample': s})
+        else:
+            missing.append(s['sample_id'])
+    return members, missing
+
+
+def compare_reconstructions(cohort: dict, threads: int = 1) -> dict:
+    """All-vs-all comparison of the reconstructions and the reference (compare.all_vs_all), or why not."""
+    members, missing = comparison_members(cohort)
+    if missing:
+        logger.warning(f"{len(missing)} run(s) have no reconstruction.fa (made before plasmid-surgery kept it; rerun to "
+                       f"include them): {', '.join(missing[:5])}{' ...' if len(missing) > 5 else ''}")
+    out = {'members': members, 'missing': missing, 'result': None, 'error': None}
+    if sum(not m['is_reference'] for m in members) < 2:
+        out['error'] = 'fewer than two reconstructions to compare'
+        return out
+    try:
+        with tempfile.TemporaryDirectory(prefix='plasmid-surgery-cohort_') as tmp:
+            out['result'] = compare.all_vs_all(members, tmp, threads)
+    except alignment.AlignmentError as e:
+        logger.error(str(e))
+        out['error'] = str(e).splitlines()[0]
+    return out
+
+
+def containment_colour(v: float) -> str:
+    """White (0) to dark blue (1)."""
+    lo, hi = (255, 255, 255), (31, 78, 140)
+    t = max(0.0, min(1.0, v))
+    return '#' + ''.join(f'{round(a + (b - a) * t):02x}' for a, b in zip(lo, hi))
+
+
+def comparison_heatmap(comparison: dict, page_dir: Path) -> str:
+    """The members against each other: cell (row, column) = how much of the row's sequence the column contains."""
+    result, members = comparison['result'], comparison['members']
+    order = result['order']
+    n = len(order)
+    cell = max(6, min(22, 640 // max(n, 1)))
+    names = result['names']
+    shown = [names[i] + (' (reference)' if members[i]['is_reference'] else '') for i in range(len(names))]
+    label_w = min(260, max(len(x) for x in shown) * 6.6 + 14)
+    left, top = label_w, label_w
+    width, height = left + n * cell + 10, top + n * cell + 10
+    s = report.Svg()
+    for r, i in enumerate(order):
+        name = names[i] + (' (reference)' if members[i]['is_reference'] else '')
+        weight = 'bold' if members[i]['is_reference'] else 'normal'
+        s.text(left - 6, top + r * cell + cell / 2 + 4, name, size=10, anchor='end', weight=weight)
+        x = left + r * cell + cell / 2 + 4
+        s.text(x, top - 6, name, size=10, weight=weight, extra=f'transform="rotate(-90 {x:.1f} {top - 6:.1f})"')
+    for r, i in enumerate(order):
+        for c, j in enumerate(order):
+            if i == j:
+                s.rect(left + c * cell, top + r * cell, cell - 1, cell - 1, report.FAINT)
+                continue
+            v = result['containment'][i][j]
+            ident = result['identity'][i][j]
+            tip = (f"{names[i]} in {names[j]}: {v:.1%} ({result['aligned'][i][j]:,} of {result['lengths'][i]:,} bp)\n"
+                   f"{names[j]} in {names[i]}: {result['containment'][j][i]:.1%} "
+                   f"({result['aligned'][j][i]:,} of {result['lengths'][j]:,} bp)"
+                   + (f"\nidentity {ident:.2%}" if ident is not None else ''))
+            s.rect(left + c * cell, top + r * cell, cell - 1, cell - 1, containment_colour(v), title=tip)
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" '
+           f'viewBox="0 0 {width:.0f} {height:.0f}" class="map">{"".join(s.parts)}</svg>')
+    scale = ''.join(f'<span class="key" style="--c:{containment_colour(v)};border:1px solid #ccc"></span>'
+                    for v in (0, 0.25, 0.5, 0.75, 1))
+    return (f'<div class="legend"><span class="legend-item">contained: 0% {scale} 100%</span></div>'
+            f'<div class="scroll">{svg}</div>')
+
+
+def comparison_section(comparison: dict, page_dir: Path, pairs_name: str = None) -> str:
+    if comparison is None:
+        return ''
+    head = ('<h2>Reconstructions compared</h2><p class="sub">Every reconstruction (and the reference) aligned to '
+            'every other, independent of the reference. Each cell is how much of the <b>row</b>\'s sequence the '
+            '<b>column</b> contains (alignments of at least '
+            f'{compare.MIN_ALIGNMENT} bp and {compare.MIN_IDENTITY:.0%} identity); hover for both directions and '
+            'identity. A fragmentary reconstruction contained in a complete plasmid is dark in its row and lighter '
+            'in its column. Ordered by clustering, so similar plasmids sit together'
+            + (f'; all pairs in <code>{report.esc(pairs_name)}</code>' if pairs_name and comparison['result'] else '')
+            + '.</p>')
+    notes = ''
+    if comparison['missing']:
+        notes += (f'<p class="sub na">Not included (no <code>reconstruction.fa</code>: made before plasmid-surgery kept '
+                  f'it; rerun to include): {report.esc(", ".join(comparison["missing"]))}</p>')
+    if comparison['result'] is None:
+        return head + notes + f'<p class="sub na">Not drawn: {report.esc(comparison["error"] or "")}</p>'
+    return head + notes + comparison_heatmap(comparison, page_dir)
+
+
 def embedded_reports(cohort: dict, page_dir: Path) -> str:
     """The samples' own reports, base64-encoded in a JSON script block keyed by their link, for --embed-reports."""
     store = {}
@@ -431,7 +540,8 @@ def embedded_reports(cohort: dict, page_dir: Path) -> str:
     return f'<script type="application/json" id="embedded-reports">{json.dumps(store)}</script>'
 
 
-def render_cohort(cohort: dict, page_dir: Path, title: str = None, embed_reports: bool = False) -> str:
+def render_cohort(cohort: dict, page_dir: Path, title: str = None, embed_reports: bool = False,
+                  comparison: dict = None, pairs_name: str = None) -> str:
     from plasmid_surgery import __version__
     samples = cohort['samples']
     has_assembly = any(s['ref']['contig_sources'] is not None for s in samples)
@@ -469,6 +579,7 @@ assembly's coverage, so it doesn't reflect sequence lost by binning: compare sam
 <p class="sub">Sample genes on the reconstruction (or, with the assembly, on contigs aligning to the reference) that
 aren't on the reference itself.</p>
 <div class="scroll">{novel_genes(cohort, page_dir)}</div>
+{comparison_section(comparison, page_dir, pairs_name)}
 <footer>Generated by plasmid-surgery {report.esc(__version__)} on {date.today().isoformat()}.</footer>
 </main>{embedded_reports(cohort, page_dir) if embed_reports else ''}<script>{JS}</script></body></html>
 """
@@ -529,11 +640,20 @@ def write_reference_table(run_dirs, out, top: int = 3) -> None:
         out.write('\t'.join(str(values[f]) for f in LIST_FIELDS) + '\n')
 
 
-def write_cohort(run_dirs, output, ref_id=None, title=None, embed_reports=False) -> Path:
+def write_cohort(run_dirs, output, ref_id=None, title=None, embed_reports=False, compare_reconstructions_=True,
+                 threads: int = 1) -> Path:
+    """Write the cohort report; with the comparison, also <output stem>_pairs.tsv beside it."""
     cohort = gather([Path(d) for d in run_dirs], ref_id)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(render_cohort(cohort, output.parent, title, embed_reports))
+    comparison, pairs = None, None
+    if compare_reconstructions_:
+        comparison = compare_reconstructions(cohort, threads)
+        if comparison['result'] is not None:
+            pairs = output.with_name(f"{output.stem}_pairs.tsv")
+            compare.write_pairs(pairs, comparison['result'])
+    output.write_text(render_cohort(cohort, output.parent, title, embed_reports, comparison,
+                                    pairs.name if pairs else None))
     return output
 
 
@@ -553,6 +673,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--top', type=int, default=3, help="With --list-refs: the rank cutoff for in_top_N (default: 3)")
     parser.add_argument('--title', help="Report title (default: 'plasmid-surgery cohort: <ref_id>')")
     parser.add_argument('--embed-reports', action='store_true', help="Embed each sample's own report.html in the cohort page, so its links work when the page is moved or shared on its own (otherwise links are relative paths to the run directories). Adds each report's size to the page")
+    parser.add_argument('--no-compare', action='store_true', help="Don't compare the reconstructions with each other (by default, every run's reconstruction.fa and the reference are aligned all-vs-all with minimap2: a clustered matrix in the report, and <output stem>_pairs.tsv)")
+    parser.add_argument('-t', '--threads', type=int, default=1, help="Threads for minimap2 (the comparison) (default: 1)")
     parser.add_argument('--log-level', default='info', help="Log level (default: 'info')")
     parser.add_argument('--version', action='version', version=f"%(prog)s {__version__}")
     return parser
@@ -566,7 +688,8 @@ def main(argv=None) -> int:
         if args.list_refs:
             write_reference_table(args.runs, sys.stdout, args.top)
             return 0
-        path = write_cohort(args.runs, args.output, args.ref, args.title, args.embed_reports)
+        path = write_cohort(args.runs, args.output, args.ref, args.title, args.embed_reports,
+                            not args.no_compare, args.threads)
     except CohortError as e:
         logger.error(str(e))
         return 1

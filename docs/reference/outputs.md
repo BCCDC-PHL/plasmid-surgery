@@ -10,6 +10,7 @@ Outputs are written to `--outdir` (default: the current directory), named `<pref
 ├── assessment.tsv     one row per reference, ranked (rank, score)
 ├── candidates.tsv     with --db-sketch: every candidate reference considered (as from plasmid-surgery-refs)
 ├── contig_depth.tsv   with reads: mean read depth of each contig (see below)
+├── reconstruction.fa  the reconstruction assessed (its contigs, deduplicated), for plasmid-surgery-cohort's comparison
 ├── composition.tsv    references picked by how much of the reconstruction each newly explains (see below)
 ├── joins.tsv          where the reconstruction switches between references, with long-read evidence (see below)
 ├── reconstruction_{short,long}_reads_depth.bedgraph.gz   with reads: depth along each reconstruction contig

@@ -141,7 +141,18 @@ with a deletion and an insertion, and with an extra gene.
    (binning). Needs `--ref-features`.
 4. **Genes not on the reference**: the samples' genes that aren't on the reference, by sample. Needs
    `--features`.
+5. **Reconstructions compared**: every sample's reconstruction and the reference, aligned to each
+   other all-vs-all (one minimap2 call), independent of the reference's coordinates. Each cell is how
+   much of the row's sequence the column contains; hover for both directions and identity. A
+   fragmentary reconstruction contained in a complete plasmid is dark along its row and light down its
+   column; sequence a sample has that others lack (e.g. an acquired gene) lightens its row. Ordered by
+   average-linkage clustering, so similar plasmids sit together. Every pair is also written to
+   `<report name>_pairs.tsv` beside the report (`a_in_b`, `b_in_a`, `identity`, aligned bases).
+   It uses each run's `reconstruction.fa` (written by plasmid-surgery since this was added: older runs
+   are listed and left out; rerun them to include them). Alignments count if at least 500 bp and 90%
+   identical (gap-compressed); indels of 50 bp or more within an alignment don't count as contained.
+   `--no-compare` skips it; `-t` sets minimap2's threads.
 
-All three sections can be ordered together, by coverage (the default), score, sample or input
+The first four sections can be ordered together, by coverage (the default), score, sample or input
 order. To compare samples, use coverage: the score ranks references within one sample's run, and with
 `--assembly` it uses the assembly's coverage, so it doesn't reflect sequence lost by binning.

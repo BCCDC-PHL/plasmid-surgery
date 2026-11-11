@@ -120,6 +120,11 @@ and spanning reads; leave variant calling to dedicated tools.
 
 ## Reports
 
+- [x] Cohort: reconstructions compared all-vs-all with the reference (reconstruction.fa in each run;
+  containment both ways, identity, clustered heatmap, <report>_pairs.tsv).
+- [ ] Cohort: pairwise differences annotated as real vs. reconstruction artifact (in the assembly / in the
+  reads) for mixed short-read / long-read cohorts; shared off-reference blocks; SNP distances; an
+  automatic anchor (the most complete reconstruction) when no shared reference fits.
 - [ ] Cohort view across several references at once (e.g. one section per reference).
 - [ ] Cluster samples in the cohort view by their coverage/gene profiles, rather than sorting.
 - [ ] PNG export of maps (for tools that can't take SVG).

@@ -45,6 +45,7 @@ OUTPUT_FILENAMES = {
 TOP_LEVEL_FILENAMES = {
     'assessment': 'assessment.tsv',   # one row per reference, ranked
     'candidates': 'candidates.tsv',   # with --db-sketch only
+    'reconstruction': 'reconstruction.fa',   # the reconstruction assessed (for plasmid-surgery-cohort's comparisons)
     'contig_depth': 'contig_depth.tsv',   # with reads only
     'composition': 'composition.tsv',     # references picked by the reconstruction sequence each newly explains
     'joins': 'joins.tsv',                 # where the reconstruction switches between references, with read evidence
@@ -209,6 +210,15 @@ def write_fasta(path, seq_id: str, seq: str, bases_per_line: int, description: s
             f.write(f"{line}\n")
 
 
+def write_contigs(path, contigs: list[dict], bases_per_line: int) -> None:
+    """Write contigs (with their header descriptions) as FASTA."""
+    with open(path, 'w') as f:
+        for c in contigs:
+            f.write(f">{c['seq_id']} {c.get('description', '')}".rstrip() + "\n")
+            for line in wrap(c['seq'], bases_per_line):
+                f.write(f"{line}\n")
+
+
 def summary_row(aligned_contig: dict, ref_id: str, ref_length: int, contig_fraction_aligned: dict,
                 alignment_class: str = 'placement') -> dict:
     """
@@ -335,6 +345,7 @@ def run(args, tmpdir) -> int:
     outdir = Path(args.outdir)
     top_level = output_paths(outdir, args.prefix, TOP_LEVEL_FILENAMES)
     plasmid_reconstruction_contigs = deduplicate_contigs(parsers.parse_fasta(args.plasmid_reconstruction))
+    write_contigs(top_level['reconstruction'], plasmid_reconstruction_contigs, args.output_bases_per_line)
 
     if args.sample_id:
         sample_id = args.sample_id
